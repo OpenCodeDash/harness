@@ -361,7 +361,7 @@ export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
     "- Normalizers encode preference: for a bad thing (damp, mould), boolean prefer must be false.",
     "- Mark origin explicit for things the user asked for and suggested for your additions.",
     "- Suggested criteria must not have hard constraints. Hard constraints only come from stated limits.",
-    "- Use the property hard fields for rent_max/bedrooms/areas when relevant; otherwise put hard predicates on criteria.",
+    "- Use rent_max/bedrooms/areas only for property rentals. For other domains express limits as hard predicates on the relevant criterion (for example price with op lte).",
     "- If the request mentions work or \"near work\", set anchors.work.address to the best available place name (e.g. \"Wellington CBD\") so commute can be computed.",
     "- Use field sources only for the available fields. For anything else, use text/image facts.",
     "- Weights are 0..1. Explicit criteria should carry the user's intent; suggested criteria default lower.",

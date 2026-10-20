@@ -12,6 +12,7 @@ import { selectFacts, scoreListing } from "../scoring/score.ts";
 import { persistScores, scoreCampaign } from "./score.ts";
 import {
   getRecipeFor,
+  listRecipes,
   runListing,
   runSearch,
   type Recipe,
@@ -461,7 +462,9 @@ async function discover(
     log: (level: "info" | "error", message: string) => void;
   },
 ): Promise<string[]> {
-  const queries = buildDiscoveryQueries(brief, pack);
+  const queries = buildDiscoveryQueries(brief, pack, {
+    sources: listRecipes().map((recipe) => recipe.id),
+  });
   const seeds = new Set<string>();
 
   for (const [index, query] of queries.entries()) {

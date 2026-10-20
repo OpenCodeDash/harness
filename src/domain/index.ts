@@ -1,7 +1,9 @@
+import { carsPack } from "./cars.ts";
+import { laptopsPack } from "./laptops.ts";
 import { propertyPack } from "./property.ts";
 import type { DomainPack } from "./types.ts";
 
-const packs: DomainPack[] = [propertyPack];
+const packs: DomainPack[] = [propertyPack, carsPack, laptopsPack];
 
 export function getPack(id: string): DomainPack {
   const pack = packs.find((candidate) => candidate.id === id);

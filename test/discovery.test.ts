@@ -11,6 +11,8 @@ import {
   SearxngMcpProvider,
 } from "../src/discovery/searxng.ts";
 import { propertyPack } from "../src/domain/property.ts";
+import { carsPack } from "../src/domain/cars.ts";
+import { laptopsPack } from "../src/domain/laptops.ts";
 
 test("renders templates and collapses empty placeholders", () => {
   assert.equal(
@@ -42,7 +44,9 @@ test("builds one query set per area without duplicates", () => {
       required: { property_type: "townhouse" },
     },
   });
-  const queries = buildDiscoveryQueries(brief, propertyPack);
+  const queries = buildDiscoveryQueries(brief, propertyPack, {
+    sources: ["trademe", "jsonld"],
+  });
 
   assert.ok(queries.some((q) => q.includes("Wellington")));
   assert.ok(queries.some((q) => q.includes("Petone")));
@@ -50,6 +54,61 @@ test("builds one query set per area without duplicates", () => {
   assert.ok(queries.some((q) => q.includes("under 650")));
   assert.equal(new Set(queries).size, queries.length);
   assert.ok(queries.every((q) => !q.includes("{")));
+});
+
+test("source-tagged templates are skipped when the source is unavailable", () => {
+  const brief = briefFromExtraction("rental", propertyPack, {
+    hard: { areas: ["Wellington"] },
+  });
+  const without = buildDiscoveryQueries(brief, propertyPack, {
+    sources: ["jsonld"],
+  });
+  assert.ok(without.length > 0);
+  assert.ok(without.every((q) => !q.includes("site:")));
+
+  const withSource = buildDiscoveryQueries(brief, propertyPack, {
+    sources: ["trademe"],
+  });
+  assert.ok(withSource.some((q) => q.startsWith("site:trademe.co.nz ")));
+});
+
+test("cross-domain packs render prompt, price, and field values", () => {
+  const brief = briefFromExtraction("used Toyota Corolla under 15000 in Auckland", carsPack, {
+    hard: {
+      areas: ["Auckland"],
+      required: { brand: "Toyota", model: "Corolla" },
+    },
+    criteria: [
+      {
+        key: "price",
+        label: "Price",
+        weight: 0.8,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 30_000 },
+        source: { type: "field", field: "price" },
+        origin: "explicit",
+        hard: { op: "lte", value: 15_000 },
+      },
+    ],
+  });
+  const queries = buildDiscoveryQueries(brief, carsPack, {
+    sources: ["trademe", "jsonld"],
+  });
+
+  assert.ok(queries.some((q) => q.includes("under 15000")));
+  assert.ok(queries.some((q) => q.includes("Toyota Corolla")));
+  assert.ok(
+    queries.some((q) => q.startsWith("site:trademe.co.nz/motors ")),
+  );
+
+  const laptopBrief = briefFromExtraction("laptop under 2000", laptopsPack, {
+    hard: { areas: ["Wellington"] },
+  });
+  assert.ok(
+    buildDiscoveryQueries(laptopBrief, laptopsPack).some((q) =>
+      q.includes("laptop"),
+    ),
+  );
 });
 
 test("canonical URLs drop tracking params, fragments, and trailing slashes", () => {
