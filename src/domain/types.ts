@@ -23,6 +23,7 @@ export interface FieldDef {
   hard?: boolean;
   derived?: boolean;
   options?: string[];
+  aliases?: string[];
 }
 
 export interface ImageFeatureDef {
@@ -31,6 +32,7 @@ export interface ImageFeatureDef {
   prompt: string;
   kind: "boolean" | "enum" | "number";
   options?: string[];
+  aliases?: string[];
 }
 
 export interface DomainPack {

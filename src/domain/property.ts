@@ -15,7 +15,12 @@ export const propertyPack: DomainPack = {
       kind: "enum",
       options: ["apartment", "house", "townhouse", "unit", "studio"],
     },
-    { key: "parking", label: "Parking", kind: "boolean" },
+    {
+      key: "parking",
+      label: "Parking",
+      kind: "boolean",
+      aliases: ["carpark", "car park", "garage"],
+    },
     { key: "furnished", label: "Furnished", kind: "boolean" },
     {
       key: "pets",
@@ -39,6 +44,7 @@ export const propertyPack: DomainPack = {
       prompt:
         "Is a heat pump or air-conditioning unit visible? Answer present, absent, or unknown.",
       kind: "boolean",
+      aliases: ["aircon", "air conditioning", "hvac"],
     },
     {
       key: "sunlight",
@@ -47,6 +53,7 @@ export const propertyPack: DomainPack = {
         "Judge direct sunlight and window size visible in the photo. Answer none, low, moderate, or high. Do not infer time of day.",
       kind: "enum",
       options: ["none", "low", "moderate", "high"],
+      aliases: ["sun", "sunny", "light"],
     },
     {
       key: "condition",
