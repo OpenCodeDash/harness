@@ -188,6 +188,14 @@ export function briefFromExtraction(
   if (parsed.hard?.bedrooms) weights.delete("bedrooms");
   if (!parsed.anchors?.commute && !parsed.anchors?.work) weights.delete("commute");
 
+  if (parsed.hard?.required) {
+    const resolved: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.hard.required)) {
+      resolved[resolveKey(pack, key) ?? key] = value;
+    }
+    parsed.hard.required = resolved;
+  }
+
   const candidate: BriefYaml = {
     version: 1,
     domain: pack.id,

@@ -27,10 +27,35 @@ npm test
 npm run typecheck
 ```
 
+## Running
+
+```sh
+# Compile a brief from a prompt, then research
+npm run dev -- --prompt "2-3 bed rental in Wellington under $650 near work" --now
+
+# Or start from a YAML brief
+npm run dev -- --brief brief.yaml --now
+
+# Serve the control API too (status, feedback, pause, resume, export)
+npm run dev -- --prompt "..." --serve
+```
+
+The control API is local-only:
+
+- `GET /status`
+- `GET /brief`
+- `GET /export.csv`
+- `POST /feedback {"text":"..."}`
+- `POST /pause`
+- `POST /resume`
+- `POST /run`
+
 ## Environment
 
 - `CHROME_PATH` — Chromium executable for the chrome-devtools MCP server. Auto-detects
   common paths; set it if auto-detection fails.
 - `SEARXNG_MCP_URL` — SearXNG MCP endpoint (e.g. `http://host:8049/mcp`).
-- `ORS_API_KEY` — OpenRouteService key for drive-time scoring.
-- `OPENCODE_GO_API_KEY` — used by the router, not by the harness directly.
+- `ROUTER_BASE_URL` — LLM router base URL (default `http://192.168.68.51:3005/v1`).
+- `HARNESS_MODEL` — Responses-API model (default `opencode-go-gpt-5.6-luna`).
+- `ORS_API_KEY` — OpenRouteService key for drive-time scoring. Without it, commute is unknown.
+- `ROUTER_API_KEY` — sent as a bearer token to the router if set.
