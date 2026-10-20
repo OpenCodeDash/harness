@@ -17,5 +17,6 @@ One decision per file. Status is `proposed`, `accepted`, or `superseded`.
 | [0011](0011-dynamic-criteria.md) | Criteria are brief-owned, compiled from the prompt | accepted |
 | [0012](0012-generic-jsonld-recipe.md) | Generic JSON-LD recipe as the extraction fallback | accepted |
 | [0013](0013-sources-own-discovery.md) | Source integrations own discovery query templates | accepted |
+| [0014](0014-brief-source-scope.md) | Open web by default, brief-scoped sources | accepted |
 
 Add a new ADR rather than editing an accepted one; supersede it instead.

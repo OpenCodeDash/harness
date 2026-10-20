@@ -12,9 +12,11 @@ import { selectFacts, scoreListing } from "../scoring/score.ts";
 import { persistScores, scoreCampaign } from "./score.ts";
 import {
   getRecipeFor,
+  isUrlAllowed,
   listRecipes,
   runListing,
   runSearch,
+  selectSources,
   type Recipe,
   type RecipePage,
   type RawListing,
@@ -269,6 +271,12 @@ export async function runCampaign(
         log("error", message);
         continue;
       }
+      if (!isUrlAllowed(url, brief.sources, listRecipes(), recipe.id)) {
+        const message = `source policy blocks ${url}`;
+        errors.push(message);
+        log("error", message);
+        continue;
+      }
 
       let page: RunnerPage | null = null;
       try {
@@ -461,7 +469,29 @@ async function discover(
     log: (level: "info" | "error", message: string) => void;
   },
 ): Promise<string[]> {
-  const queries = buildDiscoveryQueries(brief, listRecipes());
+  const recipes = listRecipes();
+  const selection = selectSources(recipes, brief.sources);
+  for (const warning of selection.warnings) {
+    report.log("info", `source policy: ${warning}`);
+  }
+  if (selection.skipped.length) {
+    report.log(
+      "info",
+      `sources skipped: ${selection.skipped
+        .map((entry) => `${entry.id} (${entry.reason})`)
+        .join(", ")}`,
+    );
+  }
+  const active = selection.active.map(
+    (source) => source.discovery?.label ?? source.id,
+  );
+  report.log("info", `sources: ${active.join(", ") || "none"}`);
+  if (!selection.active.length) {
+    report.log("error", "no sources available under the brief's source policy");
+    return [];
+  }
+
+  const queries = buildDiscoveryQueries(brief, selection.active);
   const seeds = new Set<string>();
 
   for (const [index, query] of queries.entries()) {
@@ -470,7 +500,13 @@ async function discover(
     try {
       const results = await deps.search.search(query, { limit: 10 });
       for (const result of results) {
-        if (!getRecipeFor(result.url)) continue;
+        const recipe = getRecipeFor(result.url);
+        if (!recipe) continue;
+        if (
+          !isUrlAllowed(result.url, brief.sources, recipes, recipe.id)
+        ) {
+          continue;
+        }
         seeds.add(result.url);
         if (seeds.size >= brief.budgets.maxListings) break;
       }

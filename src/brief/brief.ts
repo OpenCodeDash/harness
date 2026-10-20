@@ -11,10 +11,13 @@ import {
 } from "./criteria.ts";
 import {
   DEFAULT_BUDGETS,
+  DEFAULT_SOURCE_SCOPE,
   type Brief,
   type BriefDelta,
   type Commute,
   type HardConstraints,
+  type SourceScope,
+  type WebScope,
 } from "./types.ts";
 
 const AnchorYaml = z.object({
@@ -48,6 +51,39 @@ const BudgetsYaml = z.object({
   vision_max: z.number().int().nonnegative().optional(),
 });
 
+const SourcesYaml = z.object({
+  allow: z.array(z.string()).optional(),
+  deny: z.array(z.string()).optional(),
+  prefer: z.array(z.string()).optional(),
+  web: z.enum(["open", "structured-only", "off"]).optional(),
+});
+
+function cleanSourceList(values?: string[]): string[] | undefined {
+  const cleaned = [
+    ...new Set(
+      (values ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean),
+    ),
+  ];
+  return cleaned.length ? cleaned : undefined;
+}
+
+export function normaliseSourceScope(raw?: {
+  allow?: string[];
+  deny?: string[];
+  prefer?: string[];
+  web?: WebScope;
+}): SourceScope {
+  const allow = cleanSourceList(raw?.allow);
+  const deny = cleanSourceList(raw?.deny);
+  const prefer = cleanSourceList(raw?.prefer);
+  return {
+    ...(allow ? { allow } : {}),
+    ...(deny ? { deny } : {}),
+    ...(prefer ? { prefer } : {}),
+    web: raw?.web ?? DEFAULT_SOURCE_SCOPE.web,
+  };
+}
+
 export const BriefYamlSchema = z.object({
   version: z.number().int().positive().optional(),
   domain: z.string().optional(),
@@ -61,6 +97,7 @@ export const BriefYamlSchema = z.object({
     .array(z.object({ key: z.string().min(1), weight: z.number().min(0).max(1) }))
     .optional(),
   unknown_policy: z.enum(["flag", "penalize", "investigate"]).optional(),
+  sources: SourcesYaml.optional(),
   budgets: BudgetsYaml.optional(),
   assumptions: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
@@ -119,6 +156,7 @@ export function fromYaml(raw: BriefYaml, pack?: DomainPack): Brief {
     },
     criteria,
     unknownPolicy: raw.unknown_policy ?? "flag",
+    sources: normaliseSourceScope(raw.sources),
     budgets: {
       maxListings: budgets.max_listings ?? DEFAULT_BUDGETS.maxListings,
       maxUsd: budgets.max_usd ?? DEFAULT_BUDGETS.maxUsd,
@@ -168,6 +206,18 @@ export function toYaml(brief: Brief): BriefYaml {
     }),
     criteria: brief.criteria.map(criterionToYaml) as BriefYaml["criteria"],
     unknown_policy: brief.unknownPolicy,
+    sources:
+      brief.sources.web === "open" &&
+      !brief.sources.allow?.length &&
+      !brief.sources.deny?.length &&
+      !brief.sources.prefer?.length
+        ? undefined
+        : compact({
+            allow: brief.sources.allow,
+            deny: brief.sources.deny,
+            prefer: brief.sources.prefer,
+            web: brief.sources.web === "open" ? undefined : brief.sources.web,
+          }),
     budgets: {
       max_listings: brief.budgets.maxListings,
       max_usd: brief.budgets.maxUsd,
@@ -274,6 +324,7 @@ export function briefFromExtraction(
     hard,
     criteria,
     unknownPolicy: parsed.unknown_policy ?? "flag",
+    sources: normaliseSourceScope(parsed.sources),
     budgets: {
       maxListings:
         parsed.budgets?.max_listings ?? DEFAULT_BUDGETS.maxListings,
@@ -327,8 +378,34 @@ export async function compileBrief(
   return briefFromExtraction(prompt, pack, raw);
 }
 
+function sourceScopeAssumptions(sources: SourceScope): string[] {
+  const assumptions: string[] = [];
+  if (sources.allow?.length) {
+    assumptions.push(`searching only: ${sources.allow.join(", ")}`);
+  }
+  if (sources.deny?.length) {
+    assumptions.push(`excluding sources: ${sources.deny.join(", ")}`);
+  }
+  if (sources.prefer?.length) {
+    assumptions.push(`preferring sources: ${sources.prefer.join(", ")}`);
+  }
+  if (sources.web === "structured-only") {
+    assumptions.push("searching structured sources only");
+  } else if (sources.web === "off") {
+    assumptions.push(
+      sources.allow?.length
+        ? "open-web discovery off; allowed sources only"
+        : "open-web discovery disabled",
+    );
+  } else if (!sources.allow?.length && !sources.deny?.length) {
+    assumptions.push("searching the open web; no source restrictions");
+  }
+  return assumptions;
+}
+
 function deriveAssumptions(brief: Brief): string[] {
   const assumptions: string[] = [];
+  assumptions.push(...sourceScopeAssumptions(brief.sources));
   const commute = brief.anchors.commute;
   if (commute) {
     assumptions.push(
@@ -515,6 +592,18 @@ export function echoBrief(brief: Brief): string {
     );
   }
   lines.push(`Hard: ${hard.length ? hard.join(" · ") : "none"}`);
+
+  const scope = [`web ${brief.sources.web}`];
+  if (brief.sources.allow?.length) {
+    scope.push(`allow: ${brief.sources.allow.join(", ")}`);
+  }
+  if (brief.sources.deny?.length) {
+    scope.push(`deny: ${brief.sources.deny.join(", ")}`);
+  }
+  if (brief.sources.prefer?.length) {
+    scope.push(`prefer: ${brief.sources.prefer.join(", ")}`);
+  }
+  lines.push(`Sources: ${scope.join(" · ")}`);
 
   const explicit = brief.criteria.filter(
     (criterion) => criterion.origin === "explicit",

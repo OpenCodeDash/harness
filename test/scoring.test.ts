@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_BUDGETS, type Brief } from "../src/brief/types.ts";
+import { DEFAULT_BUDGETS, DEFAULT_SOURCE_SCOPE, type Brief } from "../src/brief/types.ts";
 import { propertyPack } from "../src/domain/property.ts";
 import type { CriterionSpec } from "../src/domain/types.ts";
 import {
@@ -44,6 +44,7 @@ function makeBrief(
     criteria:
       criteria ?? (soft ?? []).map(({ key, weight }) => criterionFor(key, weight)),
     unknownPolicy: "flag",
+  sources: DEFAULT_SOURCE_SCOPE,
     budgets: DEFAULT_BUDGETS,
     assumptions: [],
     warnings: [],

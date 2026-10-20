@@ -471,3 +471,30 @@ test("emits progress and log events for monitoring", async () => {
     store.close();
   }
 });
+
+test("source policy excludes denied sites from discovery", async () => {
+  const store = CampaignStore.open(":memory:");
+  const browser = new FakeBrowser(() => null);
+  try {
+    const summary = await runCampaign(
+      {
+        store,
+        browser,
+        search: new FakeSearch([LISTING_1]),
+        visitDetails: false,
+      },
+      {
+        brief: makeBrief({
+          sources: { web: "open", deny: ["trademe"] },
+        }),
+        pack: propertyPack,
+      },
+    );
+
+    assert.equal(summary.discovered, 0);
+    assert.equal(summary.collected, 0);
+    assert.equal(store.listListings().length, 0);
+  } finally {
+    store.close();
+  }
+});

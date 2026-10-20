@@ -258,3 +258,42 @@ soft:
   assert.equal(brief.criteria[0]?.origin, "explicit");
   assert.equal(brief.criteria[0]?.source.type, "field");
 });
+
+test("parses and round-trips the source scope", () => {
+  const brief = parseBrief(`
+sources:
+  allow: [TradeMe, trademe]
+  deny: [Facebook.com]
+  prefer: [trademe]
+  web: structured-only
+`);
+  assert.deepEqual(brief.sources, {
+    allow: ["trademe"],
+    deny: ["facebook.com"],
+    prefer: ["trademe"],
+    web: "structured-only",
+  });
+  assert.deepEqual(parseBrief(serializeBrief(brief)), brief);
+});
+
+test("source scope defaults to open web and is echoed", () => {
+  const open = briefFromExtraction("find a rental", propertyPack, {});
+  assert.deepEqual(open.sources, { web: "open" });
+  assert.ok(
+    open.assumptions.includes(
+      "searching the open web; no source restrictions",
+    ),
+  );
+  assert.match(echoBrief(open), /Sources: web open/);
+
+  const restricted = briefFromExtraction("find a rental", propertyPack, {
+    sources: { allow: ["trademe"], web: "off" },
+  });
+  assert.deepEqual(restricted.sources, { allow: ["trademe"], web: "off" });
+  assert.ok(
+    restricted.assumptions.includes(
+      "open-web discovery off; allowed sources only",
+    ),
+  );
+  assert.match(echoBrief(restricted), /Sources: web off · allow: trademe/);
+});
