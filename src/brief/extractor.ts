@@ -2,71 +2,220 @@ import type { DomainPack } from "../domain/types.ts";
 import type { ResponsesClient } from "../vision/responses.ts";
 import type { BriefExtractor } from "./brief.ts";
 
-interface Extraction {
-  hard?: {
-    rent_max?: number | null;
-    bedrooms?: { min?: number | null; max?: number | null } | null;
-    areas?: string[] | null;
-    required?: Array<{ key: string; value: string | number | boolean }> | null;
-  } | null;
-  anchors?: {
-    work?: { address?: string | null; lat?: number | null; lon?: number | null } | null;
-    commute?: {
-      mode?: string | null;
-      max_minutes?: number | null;
-      hard?: boolean | null;
-    } | null;
-  } | null;
-  soft?: Array<{ key: string; weight: number }> | null;
-  unknown_policy?: string | null;
-  budgets?: {
-    max_listings?: number | null;
-    max_usd?: number | null;
-    max_minutes?: number | null;
-    vision_max?: number | null;
-  } | null;
-  assumptions?: string[] | null;
-}
+const CRITERION_SOURCE_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "field" },
+        field: { type: "string" },
+      },
+      required: ["type", "field"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "text" },
+        prompt: { type: "string" },
+      },
+      required: ["type", "prompt"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "image" },
+        prompt: { type: "string" },
+        options: {
+          anyOf: [{ type: "array", items: { type: "string" } }, { type: "null" }],
+        },
+      },
+      required: ["type", "prompt", "options"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "derived" },
+        evaluator: {
+          type: "string",
+          enum: ["commute", "price_per_bedroom", "price_per_bathroom"],
+        },
+      },
+      required: ["type", "evaluator"],
+      additionalProperties: false,
+    },
+  ],
+} as const;
 
-function stripNulls(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value
-      .map(stripNulls)
-      .filter((entry) => entry !== null && entry !== undefined);
-  }
-  if (value && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      const cleaned = stripNulls(entry);
-      if (cleaned === null || cleaned === undefined) continue;
-      if (Array.isArray(cleaned) && cleaned.length === 0) continue;
-      if (
-        typeof cleaned === "object" &&
-        !Array.isArray(cleaned) &&
-        Object.keys(cleaned).length === 0
-      ) {
-        continue;
-      }
-      result[key] = cleaned;
-    }
-    return result;
-  }
-  return value;
+const NORMALIZER_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "boolean" },
+        prefer: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+      },
+      required: ["type", "prefer"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "lower-is-better" },
+        max: { type: "number" },
+      },
+      required: ["type", "max"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "higher-is-better" },
+        max: { type: "number" },
+      },
+      required: ["type", "max"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "range" },
+        min: { type: "number" },
+        max: { type: "number" },
+      },
+      required: ["type", "min", "max"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "enum" },
+        scores: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              value: { type: "string" },
+              score: { type: "number", minimum: 0, maximum: 1 },
+            },
+            required: ["value", "score"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["type", "scores"],
+      additionalProperties: false,
+    },
+  ],
+} as const;
+
+const HARD_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", const: "eq" },
+        value: {
+          anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }],
+        },
+      },
+      required: ["op", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", const: "in" },
+        values: {
+          type: "array",
+          items: {
+            anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }],
+          },
+        },
+      },
+      required: ["op", "values"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", const: "lte" },
+        value: { type: "number" },
+      },
+      required: ["op", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", const: "gte" },
+        value: { type: "number" },
+      },
+      required: ["op", "value"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        op: { type: "string", const: "range" },
+        min: { anyOf: [{ type: "number" }, { type: "null" }] },
+        max: { anyOf: [{ type: "number" }, { type: "null" }] },
+      },
+      required: ["op", "min", "max"],
+      additionalProperties: false,
+    },
+    { type: "null" },
+  ],
+} as const;
+
+const CRITERION_SCHEMA = {
+  type: "object",
+  properties: {
+    key: { type: "string" },
+    label: { type: "string" },
+    weight: { type: "number", minimum: 0, maximum: 1 },
+    kind: { type: "string", enum: ["boolean", "number", "enum"] },
+    normalizer: NORMALIZER_SCHEMA,
+    source: CRITERION_SOURCE_SCHEMA,
+    origin: { type: "string", enum: ["explicit", "suggested"] },
+    hard: HARD_SCHEMA,
+    unknown: {
+      anyOf: [
+        { type: "string", enum: ["flag", "penalize"] },
+        { type: "null" },
+      ],
+    },
+    rationale: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+  required: [
+    "key",
+    "label",
+    "weight",
+    "kind",
+    "normalizer",
+    "source",
+    "origin",
+    "hard",
+    "unknown",
+    "rationale",
+  ],
+  additionalProperties: false,
+} as const;
+
+function nullable(schema: Record<string, unknown>): Record<string, unknown> {
+  return { anyOf: [schema, { type: "null" }] };
 }
 
 function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
-  const nullable = (schema: Record<string, unknown>) => ({
-    anyOf: [schema, { type: "null" }],
-  });
-  const number = { type: "number" };
-
   return {
     type: "object",
     properties: {
       hard: {
         type: "object",
         properties: {
-          rent_max: nullable(number),
+          rent_max: nullable({ type: "number" }),
           bedrooms: nullable({
             type: "object",
             properties: {
@@ -129,20 +278,10 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
         required: ["work", "commute"],
         additionalProperties: false,
       },
-      soft: {
+      criteria: {
         type: "array",
-        items: {
-          type: "object",
-          properties: {
-            key: {
-              type: "string",
-              enum: pack.defaultCriteria.map((criterion) => criterion.key),
-            },
-            weight: { type: "number", minimum: 0, maximum: 1 },
-          },
-          required: ["key", "weight"],
-          additionalProperties: false,
-        },
+        maxItems: 14,
+        items: CRITERION_SCHEMA,
       },
       unknown_policy: {
         type: "string",
@@ -151,10 +290,10 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
       budgets: {
         type: "object",
         properties: {
-          max_listings: number,
-          max_usd: number,
-          max_minutes: number,
-          vision_max: number,
+          max_listings: { type: "number" },
+          max_usd: { type: "number" },
+          max_minutes: { type: "number" },
+          vision_max: { type: "number" },
         },
         required: ["max_listings", "max_usd", "max_minutes", "vision_max"],
         additionalProperties: false,
@@ -164,7 +303,7 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
     required: [
       "hard",
       "anchors",
-      "soft",
+      "criteria",
       "unknown_policy",
       "budgets",
       "assumptions",
@@ -173,25 +312,68 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
   };
 }
 
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(stripNulls)
+      .filter((entry) => entry !== null && entry !== undefined);
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const cleaned = stripNulls(entry);
+      if (cleaned === null || cleaned === undefined) continue;
+      if (Array.isArray(cleaned) && cleaned.length === 0) continue;
+      if (
+        typeof cleaned === "object" &&
+        !Array.isArray(cleaned) &&
+        Object.keys(cleaned).length === 0
+      ) {
+        continue;
+      }
+      result[key] = cleaned;
+    }
+    return result;
+  }
+  return value;
+}
+
 export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
-  const criteria = pack.defaultCriteria
-    .map((criterion) => `${criterion.key} (${criterion.label})`)
-    .join(", ");
-  const booleanFields = pack.fields
-    .filter((field) => field.kind === "boolean")
-    .map((field) => field.key)
-    .join(", ");
+  const fields = pack.fields
+    .map((field) => `- ${field.key} (${field.label}, ${field.kind})`)
+    .join("\n");
+  const imageFeatures = pack.imageFeatures
+    .map((feature) => `- ${feature.key}: ${feature.prompt}`)
+    .join("\n");
+
   return [
-    `Convert this research request into a structured brief for ${pack.label}.`,
-    "Hard limits are what the user states as limits; preferences are soft weights.",
-    "Do not invent numbers the user did not state. Use null when unknown.",
-    `Soft criteria keys must be one of: ${criteria}.`,
-    `Boolean required fields may include: ${booleanFields}.`,
-    "Weights are 0 to 1. Higher means more important.",
-    "Commute hard=true only if the user made it a limit.",
-    "If the user did not give a commute time, omit the commute object.",
-    "If the user did not give a work location, omit the work object.",
-    "If the user did not state budgets, use max_listings 300, max_usd 15, max_minutes 120, vision_max 60.",
+    `Convert this research request into a brief for ${pack.label}.`,
+    "",
+    "Rules:",
+    "- Extract every criterion the user explicitly asks for, including hard limits.",
+    "- Then propose additional criteria that are genuinely useful for this request. Do not pad: typically 3-8 suggestions, never a long list.",
+    "- Each criterion must define how it is evaluated:",
+    "  - field: structured listing data; use one of the available field keys.",
+    "  - text: the listing description; write a precise extraction prompt.",
+    "  - image: listing photos; write a precise visual prompt and options for enums.",
+    "  - derived: one of commute, price_per_bedroom, price_per_bathroom.",
+    "- kind must match the normalizer: boolean -> boolean; number -> lower-is-better/higher-is-better/range; enum -> enum scores.",
+    "- Normalizers encode preference: for a bad thing (damp, mould), boolean prefer must be false.",
+    "- Mark origin explicit for things the user asked for and suggested for your additions.",
+    "- Suggested criteria must not have hard constraints. Hard constraints only come from stated limits.",
+    "- Use the property hard fields for rent_max/bedrooms/areas when relevant; otherwise put hard predicates on criteria.",
+    "- If the request mentions work or \"near work\", set anchors.work.address to the best available place name (e.g. \"Wellington CBD\") so commute can be computed.",
+    "- Use field sources only for the available fields. For anything else, use text/image facts.",
+    "- Weights are 0..1. Explicit criteria should carry the user's intent; suggested criteria default lower.",
+    "- Do not invent facts. Criteria are what to look for; evidence comes later.",
+    "",
+    "Available fields:",
+    fields || "(none)",
+    "",
+    "Available image feature templates (use these as suggestions or write your own prompts):",
+    imageFeatures || "(none)",
+    "",
+    "Derived evaluators: commute, price_per_bedroom, price_per_bathroom.",
     "",
     `Request: ${prompt}`,
   ].join("\n");
@@ -207,7 +389,7 @@ export class ResponsesBriefExtractor implements BriefExtractor {
     prompt: string;
     pack: DomainPack;
   }): Promise<unknown> {
-    const result = await this.client.structured<Extraction>({
+    const result = await this.client.structured<Record<string, unknown>>({
       model: this.model,
       name: "brief",
       schema: buildExtractionSchema(input.pack),
@@ -221,19 +403,58 @@ export class ResponsesBriefExtractor implements BriefExtractor {
       ],
     });
 
-    const cleaned = stripNulls(result.data) as Record<string, unknown>;
-    const hard = cleaned.hard as Record<string, unknown> | undefined;
-    const required = hard?.required;
-    if (Array.isArray(required) && hard) {
+    const cleaned = stripNulls(result.data) as {
+      criteria?: Array<Record<string, unknown>>;
+      hard?: Record<string, unknown>;
+      budgets?: Record<string, unknown>;
+      anchors?: Record<string, Record<string, unknown>>;
+    };
+
+    if (Array.isArray(cleaned.criteria)) {
+      for (const criterion of cleaned.criteria) {
+        const normalizer = criterion.normalizer as
+          | { type?: string; scores?: unknown }
+          | undefined;
+        if (normalizer?.type === "enum" && Array.isArray(normalizer.scores)) {
+          normalizer.scores = Object.fromEntries(
+            (normalizer.scores as Array<{ value?: unknown; score?: unknown }>)
+              .filter(
+                (entry) =>
+                  typeof entry.value === "string" &&
+                  typeof entry.score === "number",
+              )
+              .map((entry) => [entry.value as string, entry.score as number]),
+          );
+        }
+      }
+    }
+
+    const hard = cleaned.hard;
+    if (hard && Array.isArray(hard.required)) {
       const map: Record<string, unknown> = {};
-      for (const entry of required) {
+      for (const entry of hard.required) {
         const pair = entry as { key?: unknown; value?: unknown };
         if (typeof pair.key === "string") map[pair.key] = pair.value;
       }
       hard.required = map;
     }
 
-    const bedrooms = hard?.bedrooms as Record<string, unknown> | undefined;
+    for (const criterion of cleaned.criteria ?? []) {
+      const hardValue = criterion.hard as
+        | { op?: string; min?: unknown; max?: unknown }
+        | undefined;
+      if (hardValue?.op === "range") {
+        if (typeof hardValue.min !== "number") delete hardValue.min;
+        if (typeof hardValue.max !== "number") delete hardValue.max;
+      }
+    }
+
+    if (hard && (typeof hard.rent_max !== "number" || hard.rent_max <= 0)) {
+      delete hard.rent_max;
+    }
+    const bedrooms = hard?.bedrooms as
+      | { min?: unknown; max?: unknown }
+      | undefined;
     if (
       hard &&
       bedrooms &&
@@ -242,38 +463,30 @@ export class ResponsesBriefExtractor implements BriefExtractor {
     ) {
       delete hard.bedrooms;
     }
+
+    const anchors = cleaned.anchors;
+    if (anchors?.commute && typeof anchors.commute.max_minutes !== "number") {
+      delete anchors.commute;
+    }
     if (
-      hard &&
-      (typeof hard.rent_max !== "number" || hard.rent_max <= 0)
+      anchors?.work &&
+      typeof anchors.work.address !== "string" &&
+      !(typeof anchors.work.lat === "number" && typeof anchors.work.lon === "number")
     ) {
-      delete hard.rent_max;
+      delete anchors.work;
     }
 
-    const budgets = cleaned.budgets as Record<string, unknown> | undefined;
+    const budgets = cleaned.budgets;
     if (budgets) {
       for (const key of ["max_listings", "max_usd", "max_minutes"]) {
         if (typeof budgets[key] !== "number" || (budgets[key] as number) <= 0) {
           delete budgets[key];
         }
       }
-      const vision = budgets.vision_max;
-      if (typeof vision !== "number" || vision < 0) delete budgets.vision_max;
+      if (typeof budgets.vision_max !== "number" || budgets.vision_max < 0) {
+        delete budgets.vision_max;
+      }
       if (Object.keys(budgets).length === 0) delete cleaned.budgets;
-    }
-
-    const anchors = cleaned.anchors as Record<string, unknown> | undefined;
-    const commute = anchors?.commute as Record<string, unknown> | undefined;
-    if (anchors && commute && typeof commute.max_minutes !== "number") {
-      delete anchors.commute;
-    }
-    const work = anchors?.work as Record<string, unknown> | undefined;
-    if (
-      anchors &&
-      work &&
-      typeof work.address !== "string" &&
-      !(typeof work.lat === "number" && typeof work.lon === "number")
-    ) {
-      delete anchors.work;
     }
 
     return cleaned;

@@ -123,14 +123,87 @@ test("campaign collects, extracts, scores, and exports", async () => {
     const evidence = store.listEvidence(lease.id);
     assert.ok(
       evidence.some(
-        (entry) => entry.key === "heat_pump" && entry.value === true,
+        (entry) =>
+          entry.key === "description" &&
+          entry.value === "Heat pump. No pets.",
       ),
     );
-    assert.ok(evidence.some((entry) => entry.key === "pets" && entry.value === "no"));
 
     assert.match(summary.csv, /^Rank,Score,Coverage,Hard pass/m);
     assert.ok(summary.csv.includes(LISTING_1));
     assert.ok(store.listScores(store.latestBrief()!.id).length === 2);
+  } finally {
+    store.close();
+  }
+});
+
+test("dynamic text and derived criteria produce evidence", async () => {
+  const store = CampaignStore.open(":memory:");
+  const browser = new FakeBrowser((url) =>
+    url === SEARCH_URL ? [item("1", LISTING_1, 600)] : null,
+  );
+  const brief = briefFromExtraction("rental", propertyPack, {
+    hard: {
+      rent_max: 650,
+      bedrooms: { min: 1, max: 4 },
+      areas: ["Wellington"],
+    },
+    criteria: [
+      {
+        key: "pets",
+        label: "Pets",
+        weight: 0.5,
+        kind: "enum",
+        normalizer: { type: "enum", scores: { no: 0, negotiable: 0.5, yes: 1 } },
+        source: { type: "text", prompt: "What is the pet policy?" },
+        origin: "explicit",
+      },
+      {
+        key: "price_per_bedroom",
+        label: "Price per bedroom",
+        weight: 0.5,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 400 },
+        source: { type: "derived", evaluator: "price_per_bedroom" },
+        origin: "suggested",
+      },
+    ],
+  });
+  try {
+    await runCampaign(
+      {
+        store,
+        browser,
+        search: new FakeSearch([SEARCH_URL]),
+        visitDetails: false,
+        text: {
+          model: "test",
+          async extract() {
+            return [{ key: "pets", value: "no", confidence: 0.9 }];
+          },
+        },
+      },
+      { brief, pack: propertyPack },
+    );
+
+    const listing = store.findListing("trademe", "1")!;
+    const evidence = store.listEvidence(listing.id);
+    assert.ok(
+      evidence.some(
+        (entry) =>
+          entry.key === "pets" &&
+          entry.value === "no" &&
+          entry.sourceType === "inference",
+      ),
+    );
+    assert.ok(
+      evidence.some(
+        (entry) =>
+          entry.key === "price_per_bedroom" &&
+          entry.value === 300 &&
+          entry.sourceType === "inference",
+      ),
+    );
   } finally {
     store.close();
   }
@@ -207,9 +280,11 @@ test("detail visits add description-derived facts", async () => {
       { brief: makeBrief(), pack: propertyPack },
     );
     const listing = store.findListing("trademe", "1")!;
-    const evidence = store.listEvidence(listing.id);
-    assert.ok(evidence.some((entry) => entry.key === "heat_pump" && entry.value === false));
-    assert.ok(evidence.some((entry) => entry.key === "pets" && entry.value === "yes"));
+    const latest = store.latestEvidence(listing.id);
+    assert.equal(
+      latest.get("description")?.value,
+      "No heat pump. Pets allowed.",
+    );
   } finally {
     store.close();
   }
@@ -221,6 +296,31 @@ test("vision runs on candidates and records image evidence with provenance", asy
     url === SEARCH_URL ? [item("1", LISTING_1, 600)] : null,
   );
   let extracted = 0;
+  const brief = briefFromExtraction("rental", propertyPack, {
+    hard: {
+      rent_max: 650,
+      bedrooms: { min: 1, max: 4 },
+      areas: ["Wellington"],
+    },
+    criteria: [
+      {
+        key: "sunlight",
+        label: "Sunlight",
+        weight: 0.6,
+        kind: "enum",
+        normalizer: {
+          type: "enum",
+          scores: { none: 0, low: 0.33, moderate: 0.66, high: 1 },
+        },
+        source: {
+          type: "image",
+          prompt: "Judge direct sunlight visible in the photo.",
+          options: ["none", "low", "moderate", "high"],
+        },
+        origin: "explicit",
+      },
+    ],
+  });
   try {
     await runCampaign(
       {
@@ -249,7 +349,7 @@ test("vision runs on candidates and records image evidence with provenance", asy
           },
         },
       },
-      { brief: makeBrief(), pack: propertyPack },
+      { brief, pack: propertyPack },
     );
 
     assert.equal(extracted, 1);
@@ -290,7 +390,7 @@ test("collection stops at the listing budget", async () => {
   }
 });
 
-test("detail visits do not run past the listing budget", async () => {
+test("detail visits only enrich ingested listings under the budget", async () => {
   const store = CampaignStore.open(":memory:");
   const browser = new FakeBrowser((url) =>
     url === SEARCH_URL
@@ -319,7 +419,12 @@ test("detail visits do not run past the listing budget", async () => {
     assert.equal(summary.stopReason, "budget");
     assert.equal(summary.collected, 1);
     assert.equal(store.listListings().length, 1);
-    assert.equal(browser.calls.filter((url) => url === LISTING_1).length, 0);
+    assert.equal(browser.calls.filter((url) => url === LISTING_1).length, 1);
+    const listing = store.findListing("trademe", "1")!;
+    assert.equal(
+      store.latestEvidence(listing.id).get("description")?.value,
+      "detail",
+    );
   } finally {
     store.close();
   }

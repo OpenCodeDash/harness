@@ -96,22 +96,52 @@ brief ─► discover ─► collect ─► extract ─► filter ─► vision 
 
 The brief is versioned YAML, compiled from the initial prompt and amended by feedback.
 
+Criteria are **brief-owned data**, not a fixed pack enum. The compiler extracts explicit
+criteria from the request and proposes suggested ones; every criterion carries its own
+evaluation spec.
+
 ```yaml
 version: 3
 domain: property
 prompt: "2-3 bed rental in Wellington under $650, near my work in the CBD, want a carpark"
 anchors:
-  work: { address: "…", lat: -41.28, lon: 174.77 }
+  work: { address: "Wellington CBD" }
   commute: { mode: drive, max_minutes: 25, hard: false }
 hard:
   rent_max: 650
   bedrooms: { min: 2, max: 3 }
   areas: [Wellington]
-soft:
-  - { key: carpark,   weight: 0.9 }
-  - { key: commute,   weight: 0.8 }
-  - { key: sunlight,  weight: 0.6 }
-  - { key: heat_pump, weight: 0.5 }
+criteria:
+  - key: parking
+    label: Parking
+    weight: 0.9
+    kind: boolean
+    normalizer: { type: boolean }
+    source: { type: field, field: parking }
+    origin: explicit
+    hard: { op: eq, value: true }
+  - key: commute_to_work
+    label: Commute to work
+    weight: 0.8
+    kind: number
+    normalizer: { type: lower-is-better, max: 45 }
+    source: { type: derived, evaluator: commute }
+    origin: explicit
+  - key: damp_or_mould
+    label: Damp or mould
+    weight: 0.5
+    kind: boolean
+    normalizer: { type: boolean, prefer: false }
+    source: { type: image, prompt: "Any visible damp or mould in the photos?" }
+    origin: suggested
+    rationale: "common in older rentals"
+  - key: quietness
+    label: Quiet
+    weight: 0.6
+    kind: boolean
+    normalizer: { type: boolean }
+    source: { type: text, prompt: "Is the home described as quiet?" }
+    origin: explicit
 unknown_policy: flag          # flag | penalize | investigate
 budgets:
   max_listings: 300
@@ -120,15 +150,27 @@ budgets:
   vision_max: 60
 assumptions:
   - "near work means <=25 min drive in light traffic"
-  - "good sun is inferred from photos, not guaranteed"
+warnings: []
 ```
 
 Rules:
 
-- Anything phrased as a limit is **hard**; anything phrased as a preference is **soft**.
-- Every assumption is a row, not prose, so feedback can retract it.
-- The compiler echoes the interpretation before spending, then auto-starts after 60 seconds
-  unless corrected. Corrections become a feedback delta, not a restart.
+- `source` is one of `field`, `text`, `image`, or `derived`. `field` is limited to the pack's
+  structured fields; derived evaluators are `commute`, `price_per_bedroom`, and
+  `price_per_bathroom`; text and image prompts are extraction instructions for the model.
+- Normalizers encode preference: `boolean prefer: false` makes a bad thing (damp, mould)
+  score well when absent.
+- Explicit criteria come from the user. Suggested criteria are marked, lower-weighted by
+  default, capped, and must not carry hard constraints; their unknowns are flagged.
+- Hard limits live either in `hard.*` (domain fields) or as a criterion predicate
+  (`hard: { op: eq|lte|gte|range|in, ... }`).
+- Compile → **preview**: the UI shows explicit and suggested criteria, weights, sources, and
+  warnings. The user removes or tunes suggestions, then starts; after that the run is
+  autonomous.
+- Legacy briefs with `soft: [{ key, weight }]` migrate to full criteria on load and are
+  pinned, so a later pack change cannot alter an old campaign.
+- Warnings record dropped criteria, cap trims, and invalid specs; they are surfaced in the
+  preview and the brief echo.
 
 ## 8. Evidence model
 
@@ -146,22 +188,40 @@ A listing is a set of claims, each with provenance:
 Derived values (score, coverage) are never stored as evidence. `user` evidence outranks
 extracted evidence for the same key.
 
+Criteria determine where evidence comes from:
+
+- `field` reads the structured field directly (`field: rent`).
+- `text` extracts the criterion from the listing description into the criterion key
+  (`source_ref: text:description`).
+- `image` extracts the criterion from photos (`source_ref: sha256:…`).
+- `derived` computes the criterion from fields or routes (`commute`, `price_per_bedroom`,
+  `price_per_bathroom`) and stores it under the criterion key.
+
+Every extracted fact keeps its confidence and provenance, so a score can always be traced
+back to the description, photo, or route it came from.
+
 ## 9. Scoring
 
-Hard filters drop a listing outright: price, bedrooms, excluded areas, required attributes,
-commute over a hard threshold.
+Hard filters drop a listing outright: domain limits (price, bedrooms, excluded areas,
+required attributes, a hard commute), plus any criterion with a `hard` predicate. An unknown
+required value is a failure, not a pass.
 
-Soft criteria are normalized to `[0,1]` and weighted:
+Each soft criterion in the brief is normalized with its own normalizer and weighted:
 
 ```
 score    = Σ(s_c · w_c for known c) / Σ(w_c for known c)
 coverage = Σ(w_c for known c) / Σ(w_c for all c)
 ```
 
+- Criteria are read from the brief, not looked up in a pack. A brief's criteria are pinned,
+  so re-scoring is reproducible even if the pack changes later.
 - `coverage` is reported alongside `score`. A high score on thin evidence is not a strong
   recommendation, and the export must say so.
-- Unknown handling follows `unknown_policy`: `flag` (default) leaves it out of the numerator
-  and reports the gap; `penalize` treats it as 0; `investigate` adds it to the gap queue.
+- Unknown handling follows the criterion override or `unknown_policy`: `flag` (default)
+  leaves it out of the numerator and reports the gap; `penalize` treats it as 0;
+  `investigate` adds it to the gap queue. Suggested criteria always flag.
+- A criterion's `origin` (`explicit` or `suggested`) and `source` are included in the
+  breakdown, so the UI can explain where a score came from.
 - Scores within 0.03 are a **tie band**, not a ranking. False precision is worse than a tie.
 - Every score carries its breakdown, so the export can show
   `carpark +0.9 · commute +0.6 · sunlight unknown`.
@@ -173,7 +233,7 @@ Every incoming message is classified into exactly one action (ADR 0007):
 | Action | Trigger | Work |
 | --- | --- | --- |
 | `re-score` | weight, preference, or soft threshold changed | re-filter + re-score from the database |
-| `re-extract` | a new feature to look for | re-run text/vision over existing listings |
+| `re-extract` | a new criterion or feature to look for | add/remove criteria, re-run text/vision over existing listings |
 | `re-search` | coverage complaint or new area/source | discover and collect the delta, merge, re-score |
 
 The runner reports the interpretation and the effect:
@@ -210,9 +270,13 @@ interface Recipe {
   runtime (ADR 0010).
 - Rate limits and session handling live in the runner, not in recipes.
 
-## 12. Vision
+## 12. Image and text evidence
+
+Image evidence:
 
 - Runs on **shortlisted survivors only**, capped by `vision_max` using the pre-vision score.
+- Features come from the **brief's criteria** whose `source.type` is `image`. The pack's image
+  features are templates for suggestions, not the active set.
 - Transport: OpenCode Go `gpt-5.6-luna` through the router's `/v1/responses` endpoint, with
   base64 `input_image` and a JSON-schema output format (ADR 0009). Chat completions is not
   supported by that model.
@@ -220,13 +284,24 @@ interface Recipe {
   their photos disappear (ADR 0004).
 - Each image yields typed features with confidence and a provenance reference to the image
   hash — never a bare boolean.
-- Feature sets are domain-pack defined:
-  - property: `heat_pump`, `sunlight`, `condition`, `carpet`, `appliances`, `outdoor_space`,
-    `damp_signs`
-  - cars: `damage`, `rust`, `trim`, `tyres`
-  - laptops: `model`, `ports`, `screen_damage`, `keyboard`
 - Claims are labeled as inferred. "Large north-facing window, direct sun in frame" is
   defensible; "sunny 9am–3pm" is not, and the export must not imply it.
+
+Text evidence:
+
+- Criteria with `source.type: text` run against the listing description. Descriptions are
+  archived during detail visits.
+- One schema-constrained model call per listing extracts all text criteria together, capped
+  by `vision_max` and ordered by the pre-text score.
+- The description is treated as untrusted data and delimited in the prompt; the model returns
+  null when the description does not state a fact.
+- Facts are stored under the criterion key with `source_ref: text:description`, so a
+  re-extraction can be tied to the criteria version.
+
+Derived evidence:
+
+- `commute`, `price_per_bedroom`, and `price_per_bathroom` are computed from routes and
+  structured fields after collection. The evaluator list is validated at compile time.
 
 ## 13. Geo and commute
 
@@ -278,16 +353,28 @@ Stopping is explicit, never "looks good enough":
 
 ## 16. Open questions
 
-- Per-image cost ceiling and how many images per listing are worth sending.
+- Criteria suggestion quality: how many suggestions are useful, and how to evaluate them.
+- Additional derived evaluators beyond commute and price per bedroom/bathroom.
+- Per-image/per-listing extraction cost ceilings and caching policy.
 - CSV only, or CSV + XLSX with formatting.
 - Trade Me session/auth handling; what is visible without login.
 - Dedupe thresholds and whether relists merge or supersede.
+- A generic source recipe (JSON-LD) to reduce the Trade Me-only bias.
 - Whether to add an optional live Google Sheet later (explicitly deferred).
 
 ## 17. Domain packs
 
-The core is listing-agnostic. A pack owns: field schema, text extractors, image features,
-default criteria, and source recipes.
+The core is listing-agnostic. A pack provides capabilities and defaults, not the active
+criteria set:
+
+- field schema (what recipes can extract)
+- image-feature templates and suggested criteria
+- derived evaluators
+- discovery query templates
+- source recipes
+
+The brief owns `criteria`; adding a criterion does not require changing the pack. Adding a
+pack must not require changes to the runner, scorer, store, or feedback protocol.
 
 | Pack | Status |
 | --- | --- |

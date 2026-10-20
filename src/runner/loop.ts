@@ -20,7 +20,7 @@ import {
 } from "../sources/index.ts";
 import { cacheImage } from "../vision/media.ts";
 import type { ImageFact } from "../vision/vision.ts";
-import { extractDescriptionFacts } from "./text.ts";
+import type { TextFact } from "./text-extract.ts";
 
 export interface RunnerPage extends RecipePage {
   close(): Promise<void>;
@@ -39,6 +39,14 @@ export interface VisionAdapter {
   }): Promise<ImageFact[]>;
 }
 
+export interface TextAdapter {
+  model: string;
+  extract(input: {
+    description: string;
+    criteria: import("../domain/types.ts").CriterionSpec[];
+  }): Promise<TextFact[]>;
+}
+
 export interface RunnerControl {
   paused(): boolean;
   stopped?(): boolean;
@@ -48,14 +56,14 @@ export type RunnerEvent =
   | { type: "run.started"; runId: number }
   | {
       type: "stage";
-      stage: "discover" | "collect" | "vision" | "score" | "export";
+      stage: "discover" | "collect" | "text" | "vision" | "score" | "export";
       discovered: number;
       collected: number;
       spendUsd: number;
     }
   | {
       type: "progress";
-      stage: "discover" | "collect" | "vision";
+      stage: "discover" | "collect" | "text" | "vision";
       current: number;
       total: number;
       message: string;
@@ -90,6 +98,7 @@ export interface RunnerDeps {
   search: SearchProvider;
   geo?: CachedGeoService;
   vision?: VisionAdapter;
+  text?: TextAdapter;
   cacheImage?: MediaCacheFn;
   mediaDir?: string;
   exportPath?: string;
@@ -124,7 +133,7 @@ export interface CampaignSummary {
 }
 
 interface Progress {
-  stage: "collect" | "vision";
+  stage: "collect" | "text" | "vision";
   seeds: string[];
   index: number;
 }
@@ -215,6 +224,7 @@ export async function runCampaign(
   }
 
   let stopReason: "complete" | "paused" | "budget" | "stopped" = "complete";
+  let budgetHit = false;
   let detailCount = 0;
 
   if (!progress || progress.stage === "collect") {
@@ -235,7 +245,7 @@ export async function runCampaign(
         break;
       }
       if (collected >= brief.budgets.maxListings) {
-        stopReason = "budget";
+        budgetHit = true;
         break;
       }
 
@@ -266,34 +276,30 @@ export async function runCampaign(
           ? [await runListing(page, recipe, url)]
           : await runSearch(page, recipe, url);
 
+        const ingested: RawListing[] = [];
         for (const item of items) {
-          ingest(store, pack, recipe, item, observe);
+          ingest(store, recipe, item, observe);
+          ingested.push(item);
           collected += 1;
           if (collected >= brief.budgets.maxListings) break;
         }
         if (collected >= brief.budgets.maxListings) {
-          stopReason = "budget";
+          budgetHit = true;
         }
 
         if (
-          stopReason === "complete" &&
           !recipe.isListing(url) &&
           deps.visitDetails !== false &&
           detailCount < detailLimit
         ) {
-          for (const item of items) {
-            if (
-              detailCount >= detailLimit ||
-              collected >= brief.budgets.maxListings
-            ) {
-              break;
-            }
+          for (const item of ingested) {
+            if (detailCount >= detailLimit) break;
             if (paused()) break;
             let detailPage: RunnerPage | null = null;
             try {
               detailPage = await deps.browser.newPage(item.url);
               const detail = await runListing(detailPage, recipe, item.url);
-              ingest(store, pack, recipe, detail, observe);
+              ingest(store, recipe, detail, observe);
               detailCount += 1;
             } catch (error) {
               const text = `detail ${item.url}: ${message(error)}`;
@@ -316,7 +322,7 @@ export async function runCampaign(
     }
 
     if (stopReason === "complete") {
-      checkpoint({ stage: "vision", seeds, index: 0 });
+      checkpoint({ stage: "text", seeds, index: 0 });
     }
     emit({
       type: "stage",
@@ -328,8 +334,40 @@ export async function runCampaign(
     log("info", `collected ${collected} listings from ${seeds.length} seed pages`);
   }
 
-  if (stopReason === "complete") {
-    await addCommutes(deps, brief, errors, log);
+  if (stopReason === "complete" && progress?.stage === "text") {
+    await addDerivedFacts(deps, brief, errors, log);
+    await addTextFacts(deps, brief, pack, store, progress, checkpoint, errors, {
+      paused,
+      stopped,
+      log,
+      stop: (reason: "paused" | "budget" | "stopped") => {
+        stopReason = reason;
+      },
+      progress: (current, total, message) =>
+        emit({
+          type: "progress",
+          stage: "text",
+          current,
+          total,
+          message,
+          discovered,
+          collected,
+          spendUsd: spend,
+        }),
+    });
+    if (stopReason === "complete") {
+      checkpoint({ stage: "vision", seeds, index: 0 });
+      emit({
+        type: "stage",
+        stage: "text",
+        discovered,
+        collected,
+        spendUsd: spend,
+      });
+    }
+  }
+
+  if (stopReason === "complete" && progress?.stage === "vision") {
     await addVision(deps, brief, pack, progress, checkpoint, errors, {
       spend,
       photosPerListing,
@@ -384,6 +422,10 @@ export async function runCampaign(
     collected,
     spendUsd: spend,
   });
+
+  if (stopReason === "complete" && budgetHit) {
+    stopReason = "budget";
+  }
 
   store.finishRun(run.id, stopReason, spend);
   emit({
@@ -443,7 +485,6 @@ async function discover(
 
 function ingest(
   store: CampaignStore,
-  pack: DomainPack,
   recipe: Recipe,
   item: RawListing,
   observe: () => string,
@@ -485,79 +526,227 @@ function ingest(
   const description =
     typeof item.fields.description === "string" ? item.fields.description : "";
   if (description) {
-    for (const fact of extractDescriptionFacts(description, pack)) {
-      store.addEvidence({
-        listingId: listing.id,
-        key: fact.key,
-        value: fact.value,
-        sourceType: "inference",
-        sourceRef: "text:description",
-        confidence: fact.confidence,
-        observedAt,
-      });
-    }
+    store.addEvidence({
+      listingId: listing.id,
+      key: "description",
+      value: description,
+      sourceType: "page",
+      sourceRef,
+      confidence: 1,
+      observedAt,
+    });
   }
 
   return listing.id;
 }
 
-async function addCommutes(
+function numeric(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^0-9.+-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+async function addDerivedFacts(
   deps: RunnerDeps,
   brief: Brief,
   errors: string[],
   log: (level: "info" | "error", message: string) => void,
 ): Promise<void> {
-  if (!deps.geo || !brief.anchors.work) {
-    log("info", "commute scoring skipped (no geo provider or work anchor)");
+  const derived = brief.criteria.filter(
+    (criterion) => criterion.source.type === "derived",
+  );
+  if (derived.length === 0) {
+    log("info", "derived criteria skipped");
     return;
   }
 
-  let work: GeoPoint | null = null;
-  try {
-    if (
-      typeof brief.anchors.work.lat === "number" &&
-      typeof brief.anchors.work.lon === "number"
-    ) {
-      work = { lat: brief.anchors.work.lat, lon: brief.anchors.work.lon };
-    } else if (brief.anchors.work.address) {
-      work = await deps.geo.geocode(brief.anchors.work.address);
+  const commuteCriteria = derived.filter(
+    (criterion) =>
+      criterion.source.type === "derived" &&
+      criterion.source.evaluator === "commute",
+  );
+  if (commuteCriteria.length > 0) {
+    if (!deps.geo || !brief.anchors.work) {
+      log("info", "commute scoring skipped (no geo provider or work anchor)");
+    } else {
+      let work: GeoPoint | null = null;
+      try {
+        if (
+          typeof brief.anchors.work.lat === "number" &&
+          typeof brief.anchors.work.lon === "number"
+        ) {
+          work = { lat: brief.anchors.work.lat, lon: brief.anchors.work.lon };
+        } else if (brief.anchors.work.address) {
+          work = await deps.geo.geocode(brief.anchors.work.address);
+        }
+      } catch (error) {
+        const text = `geocode work: ${message(error)}`;
+        errors.push(text);
+        log("error", text);
+      }
+      if (!work) {
+        const text = "work anchor could not be geocoded";
+        errors.push(text);
+        log("error", text);
+      } else {
+        log("info", "adding commute scores");
+        for (const listing of deps.store.listListings()) {
+          const facts = selectFacts(deps.store.listEvidence(listing.id));
+          const address = facts.get("address")?.value;
+          if (typeof address !== "string") continue;
+          try {
+            const commute = await deps.geo.commuteMinutes(address, work);
+            if (!commute) continue;
+            for (const criterion of commuteCriteria) {
+              deps.store.addEvidence({
+                listingId: listing.id,
+                key: criterion.key,
+                value: commute.minutes,
+                sourceType: "inference",
+                sourceRef: "route",
+                confidence: 0.9,
+              });
+            }
+          } catch (error) {
+            const text = `commute ${listing.id}: ${message(error)}`;
+            errors.push(text);
+            log("error", text);
+          }
+        }
+        log("info", "commute pass complete");
+      }
     }
-  } catch (error) {
-    const text = `geocode work: ${message(error)}`;
-    errors.push(text);
-    log("error", text);
-    return;
-  }
-  if (!work) {
-    const text = "work anchor could not be geocoded";
-    errors.push(text);
-    log("error", text);
-    return;
   }
 
-  log("info", "adding commute scores");
-  for (const listing of deps.store.listListings()) {
-    const facts = selectFacts(deps.store.listEvidence(listing.id));
-    const address = facts.get("address")?.value;
-    if (typeof address !== "string") continue;
-    try {
-      const commute = await deps.geo.commuteMinutes(address, work);
-      if (!commute) continue;
+  for (const criterion of derived) {
+    if (criterion.source.type !== "derived") continue;
+    const evaluator = criterion.source.evaluator;
+    if (evaluator !== "price_per_bedroom" && evaluator !== "price_per_bathroom") {
+      continue;
+    }
+    const divisorKey = evaluator === "price_per_bedroom" ? "bedrooms" : "bathrooms";
+    for (const listing of deps.store.listListings()) {
+      const facts = selectFacts(deps.store.listEvidence(listing.id));
+      const rent = numeric(facts.get("rent")?.value);
+      const divisor = numeric(facts.get(divisorKey)?.value);
+      if (rent === null || divisor === null || divisor <= 0) continue;
       deps.store.addEvidence({
         listingId: listing.id,
-        key: "commute",
-        value: commute.minutes,
+        key: criterion.key,
+        value: Math.round((rent / divisor) * 100) / 100,
         sourceType: "inference",
-        sourceRef: "route",
-        confidence: 0.9,
+        sourceRef: `derived:${evaluator}`,
+        confidence: 1,
       });
-    } catch (error) {
-      const text = `commute ${listing.id}: ${message(error)}`;
-      errors.push(text);
-      log("error", text);
     }
   }
-  log("info", "commute pass complete");
+
+  log("info", "derived criteria complete");
+}
+
+async function addTextFacts(
+  deps: RunnerDeps,
+  brief: Brief,
+  pack: DomainPack,
+  store: CampaignStore,
+  progress: Progress | null,
+  checkpoint: (next: Progress) => void,
+  errors: string[],
+  state: {
+    paused: () => boolean;
+    stopped: () => boolean;
+    log: (level: "info" | "error", message: string) => void;
+    stop: (reason: "paused" | "budget" | "stopped") => void;
+    progress: (current: number, total: number, message: string) => void;
+  },
+): Promise<void> {
+  const textCriteria = brief.criteria.filter(
+    (criterion) => criterion.source.type === "text",
+  );
+  if (!deps.text) {
+    state.log("info", "text extraction disabled");
+    return;
+  }
+  if (textCriteria.length === 0) {
+    state.log("info", "no text criteria");
+    return;
+  }
+
+  const candidates = store
+    .listListings()
+    .map((listing) => {
+      const facts = selectFacts(store.listEvidence(listing.id));
+      return { listing, facts, result: scoreListing(brief, pack, facts) };
+    })
+    .filter(
+      (candidate) =>
+        typeof candidate.facts.get("description")?.value === "string",
+    )
+    .sort(
+      (a, b) =>
+        Number(b.result.hardPass) - Number(a.result.hardPass) ||
+        b.result.score - a.result.score ||
+        a.listing.id - b.listing.id,
+    )
+    .slice(0, brief.budgets.visionMax);
+
+  if (candidates.length === 0) {
+    state.log("info", "no descriptions available for text criteria");
+    return;
+  }
+
+  const seeds = progress?.seeds ?? [];
+  const start = progress?.stage === "text" ? progress.index : 0;
+  state.log("info", `text pass over ${candidates.length} listings`);
+
+  for (let index = start; index < candidates.length; index += 1) {
+    if (state.stopped()) {
+      checkpoint({ stage: "text", seeds, index });
+      state.stop("stopped");
+      return;
+    }
+    if (state.paused()) {
+      checkpoint({ stage: "text", seeds, index });
+      state.stop("paused");
+      return;
+    }
+
+    const candidate = candidates[index]!;
+    state.progress(
+      index + 1,
+      candidates.length,
+      `text pass ${index + 1}/${candidates.length}`,
+    );
+    const description = candidate.facts.get("description")?.value;
+    if (typeof description !== "string") continue;
+
+    try {
+      const facts = await deps.text.extract({
+        description,
+        criteria: textCriteria,
+      });
+      for (const fact of facts) {
+        store.addEvidence({
+          listingId: candidate.listing.id,
+          key: fact.key,
+          value: fact.value,
+          sourceType: "inference",
+          sourceRef: "text:description",
+          confidence: fact.confidence,
+        });
+      }
+    } catch (error) {
+      const text = `text ${candidate.listing.id}: ${message(error)}`;
+      errors.push(text);
+      state.log("error", text);
+    }
+
+    checkpoint({ stage: "text", seeds, index: index + 1 });
+  }
+  state.log("info", "text pass complete");
 }
 
 async function addVision(
@@ -582,6 +771,24 @@ async function addVision(
     state.log("info", "vision disabled");
     return;
   }
+
+  const imageCriteria = brief.criteria.filter(
+    (criterion) => criterion.source.type === "image",
+  );
+  if (imageCriteria.length === 0) {
+    state.log("info", "no image criteria");
+    return;
+  }
+  const features: ImageFeatureDef[] = imageCriteria.map((criterion) => ({
+    key: criterion.key,
+    label: criterion.label,
+    prompt:
+      criterion.source.type === "image" ? criterion.source.prompt : criterion.label,
+    kind: criterion.kind,
+    ...(criterion.source.type === "image" && criterion.source.options
+      ? { options: criterion.source.options }
+      : {}),
+  }));
 
   const candidates = deps.store
     .listListings()
@@ -649,7 +856,7 @@ async function addVision(
         const facts = await deps.vision.extract({
           imagePath: cached.path,
           mimeType: cached.mimeType,
-          features: pack.imageFeatures,
+          features,
         });
         for (const fact of facts) {
           deps.store.addEvidence({

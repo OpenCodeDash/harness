@@ -24,7 +24,20 @@ test("brief extractor strips nulls and turns required pairs into a map", async (
             work: null,
             commute: { mode: "drive", max_minutes: 25, hard: false },
           },
-          soft: [{ key: "parking", weight: 0.9 }],
+          criteria: [
+            {
+              key: "parking",
+              label: "Parking",
+              weight: 0.9,
+              kind: "boolean",
+              normalizer: { type: "boolean", prefer: true },
+              source: { type: "field", field: "parking" },
+              origin: "explicit",
+              hard: null,
+              unknown: null,
+              rationale: null,
+            },
+          ],
           unknown_policy: "flag",
           budgets: {
             max_listings: 300,
@@ -68,7 +81,20 @@ test("compiled briefs from the extractor flow into the compiler", async () => {
             work: { address: "1 Lambton Quay", lat: null, lon: null },
             commute: { mode: "drive", max_minutes: 25, hard: false },
           },
-          soft: [{ key: "parking", weight: 0.95 }],
+          criteria: [
+            {
+              key: "parking",
+              label: "Parking",
+              weight: 0.95,
+              kind: "boolean",
+              normalizer: { type: "boolean", prefer: true },
+              source: { type: "field", field: "parking" },
+              origin: "explicit",
+              hard: null,
+              unknown: null,
+              rationale: null,
+            },
+          ],
           unknown_policy: "flag",
           budgets: {
             max_listings: 120,
@@ -94,16 +120,16 @@ test("compiled briefs from the extractor flow into the compiler", async () => {
   assert.equal(brief.anchors.commute?.maxMinutes, 25);
   assert.equal(brief.budgets.maxListings, 120);
   assert.equal(
-    brief.soft.find((criterion) => criterion.key === "parking")?.weight,
+    brief.criteria.find((criterion) => criterion.key === "parking")?.weight,
     0.95,
   );
 });
 
 test("brief prompt names the pack criteria", () => {
   const prompt = buildBriefPrompt("find a rental", propertyPack);
-  assert.match(prompt, /parking \(Parking\)/);
-  assert.match(prompt, /sunlight \(Sunlight\)/);
-  assert.match(prompt, /Do not invent numbers/);
+  assert.match(prompt, /parking \(Parking, boolean\)/);
+  assert.match(prompt, /sunlight:/);
+  assert.match(prompt, /Do not pad/);
 });
 
 test("CLI argument parsing applies defaults and flags", () => {
@@ -153,7 +179,7 @@ test("brief extractor drops incomplete commute and work anchors", async () => {
             work: { address: null, lat: null, lon: null },
             commute: { mode: "drive", max_minutes: null, hard: false },
           },
-          soft: [],
+          criteria: [],
           unknown_policy: "flag",
           budgets: { max_listings: 1, max_usd: 1, max_minutes: 1, vision_max: 0 },
           assumptions: [],

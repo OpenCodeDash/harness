@@ -2,7 +2,12 @@ import { EventEmitter } from "node:events";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { parseBrief, serializeBrief } from "../brief/brief.ts";
+import {
+  echoBrief,
+  parseBrief,
+  parseBriefData,
+  serializeBrief,
+} from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import { applyFeedback } from "../feedback/interpret.ts";
 import { CampaignStore } from "../campaign/store.ts";
@@ -16,6 +21,7 @@ import {
   type MediaCacheFn,
   type RunnerControl,
   type RunnerDeps,
+  type TextAdapter,
   type VisionAdapter,
 } from "../runner/loop.ts";
 import { persistScores, scoreCampaign } from "../runner/score.ts";
@@ -41,6 +47,7 @@ export interface ManagerProviders {
   search: SearchProvider;
   geo?: CachedGeoService;
   vision?: VisionAdapter;
+  text?: TextAdapter;
   cacheImage?: MediaCacheFn;
 }
 
@@ -57,7 +64,7 @@ export interface ManagerOptions {
 
 export interface CreateCampaignInput {
   prompt?: string;
-  brief?: Brief | string;
+  brief?: string | Record<string, unknown>;
   pack?: string;
   name?: string;
 }
@@ -211,14 +218,20 @@ export class CampaignManager {
     };
   }
 
+  async preview(input: {
+    prompt: string;
+    pack?: string;
+  }): Promise<{ brief: Brief; echo: string }> {
+    const pack = getPack(input.pack ?? "property");
+    const brief = await this.options.compileBrief(input.prompt, pack);
+    return { brief, echo: echoBrief(brief) };
+  }
+
   async create(input: CreateCampaignInput): Promise<CampaignRuntime> {
     const pack = getPack(input.pack ?? "property");
     let brief: Brief;
     if (input.brief) {
-      brief =
-        typeof input.brief === "string"
-          ? parseBrief(input.brief)
-          : input.brief;
+      brief = parseBriefData(input.brief, pack);
     } else if (input.prompt) {
       brief = await this.options.compileBrief(input.prompt, pack);
     } else {
@@ -474,6 +487,7 @@ export class CampaignManager {
       search: this.options.providers.search,
       geo: this.options.providers.geo,
       vision: this.options.providers.vision,
+      text: this.options.providers.text,
       cacheImage: this.options.providers.cacheImage,
       mediaDir: join(runtime.record.dir, "media"),
       exportPath: join(runtime.record.dir, "exports", "latest.csv"),

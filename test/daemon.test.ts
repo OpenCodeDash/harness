@@ -238,6 +238,29 @@ test("daemon server authenticates and serves results, feedback, and SSE", async 
     ).json()) as { campaigns: unknown[] };
     assert.equal(list.campaigns.length, 1);
 
+    const previewResponse = await fetch(`${base}/campaigns/preview`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "demo" }),
+    });
+    assert.equal(previewResponse.status, 200);
+    const previewBody = (await previewResponse.json()) as {
+      brief: unknown;
+      criteria: unknown[];
+      echo: string;
+    };
+    assert.ok(Array.isArray(previewBody.criteria));
+    assert.ok(previewBody.criteria.length > 0);
+    assert.match(previewBody.echo, /Criteria/);
+
+    const started = await fetch(`${base}/campaigns`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ brief: previewBody.brief, name: "reviewed" }),
+    });
+    assert.equal(started.status, 202);
+    await manager.waitForIdle();
+
     const controller = new AbortController();
     const stream = await fetch(`${base}/campaigns/${id}/events`, {
       headers: auth,

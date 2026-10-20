@@ -1,3 +1,5 @@
+import type { CriterionSpec } from "../domain/types.ts";
+
 export type CommuteMode = "drive" | "walk" | "cycle" | "transit";
 
 export interface Anchor {
@@ -19,11 +21,6 @@ export interface HardConstraints {
   required?: Record<string, unknown>;
 }
 
-export interface SoftCriterion {
-  key: string;
-  weight: number;
-}
-
 export type UnknownPolicy = "flag" | "penalize" | "investigate";
 
 export interface Budgets {
@@ -39,10 +36,11 @@ export interface Brief {
   prompt: string;
   anchors: { work?: Anchor; commute?: Commute };
   hard: HardConstraints;
-  soft: SoftCriterion[];
+  criteria: CriterionSpec[];
   unknownPolicy: UnknownPolicy;
   budgets: Budgets;
   assumptions: string[];
+  warnings: string[];
 }
 
 export type FeedbackAction = "re-score" | "re-extract" | "re-search";
@@ -50,6 +48,8 @@ export type FeedbackAction = "re-score" | "re-extract" | "re-search";
 export interface BriefDelta {
   action: FeedbackAction;
   setWeights?: Record<string, number>;
+  addCriteria?: CriterionSpec[];
+  removeCriteria?: string[];
   hard?: Partial<HardConstraints>;
   commute?: Partial<Commute>;
   addAreas?: string[];

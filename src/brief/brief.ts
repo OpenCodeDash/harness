@@ -1,13 +1,20 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import type { DomainPack } from "../domain/types.ts";
+import type { CriterionSpec, DomainPack } from "../domain/types.ts";
+import { criterionFactKey } from "../domain/types.ts";
+import {
+  CriterionSchema,
+  criterionFromImageFeature,
+  fallbackCriteria,
+  legacyCriteria,
+  normaliseCriteria,
+} from "./criteria.ts";
 import {
   DEFAULT_BUDGETS,
   type Brief,
   type BriefDelta,
   type Commute,
   type HardConstraints,
-  type SoftCriterion,
 } from "./types.ts";
 
 const AnchorYaml = z.object({
@@ -49,12 +56,14 @@ export const BriefYamlSchema = z.object({
     .object({ work: AnchorYaml.optional(), commute: CommuteYaml.optional() })
     .optional(),
   hard: HardYaml.optional(),
+  criteria: z.array(CriterionSchema).optional(),
   soft: z
     .array(z.object({ key: z.string().min(1), weight: z.number().min(0).max(1) }))
     .optional(),
   unknown_policy: z.enum(["flag", "penalize", "investigate"]).optional(),
   budgets: BudgetsYaml.optional(),
   assumptions: z.array(z.string()).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export type BriefYaml = z.infer<typeof BriefYamlSchema>;
@@ -65,12 +74,32 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   ) as T;
 }
 
-export function fromYaml(raw: BriefYaml): Brief {
-  const budgets = raw.budgets ?? {};
+export function fromYaml(raw: BriefYaml, pack?: DomainPack): Brief {
+  const warnings = [...(raw.warnings ?? [])];
   const commute = raw.anchors?.commute;
+
+  let criteria: CriterionSpec[];
+  if (raw.criteria?.length) {
+    criteria = normaliseCriteria(raw.criteria, pack, warnings);
+  } else if (raw.soft?.length) {
+    if (!pack) {
+      throw new Error("legacy brief with `soft` requires a domain pack");
+    }
+    criteria = normaliseCriteria(
+      legacyCriteria(pack, raw.soft, warnings),
+      pack,
+      warnings,
+    );
+  } else if (pack) {
+    criteria = fallbackCriteria(pack);
+  } else {
+    criteria = [];
+  }
+
+  const budgets = raw.budgets ?? {};
   return {
     version: raw.version ?? 1,
-    domain: raw.domain ?? "property",
+    domain: raw.domain ?? pack?.id ?? "generic",
     prompt: raw.prompt ?? "",
     anchors: {
       work: raw.anchors?.work,
@@ -88,7 +117,7 @@ export function fromYaml(raw: BriefYaml): Brief {
       areas: raw.hard?.areas,
       required: raw.hard?.required,
     },
-    soft: raw.soft ?? [],
+    criteria,
     unknownPolicy: raw.unknown_policy ?? "flag",
     budgets: {
       maxListings: budgets.max_listings ?? DEFAULT_BUDGETS.maxListings,
@@ -97,7 +126,23 @@ export function fromYaml(raw: BriefYaml): Brief {
       visionMax: budgets.vision_max ?? DEFAULT_BUDGETS.visionMax,
     },
     assumptions: raw.assumptions ?? [],
+    warnings,
   };
+}
+
+function criterionToYaml(criterion: CriterionSpec): Record<string, unknown> {
+  return compact({
+    key: criterion.key,
+    label: criterion.label,
+    weight: criterion.weight,
+    kind: criterion.kind,
+    normalizer: compact({ ...criterion.normalizer }),
+    source: compact({ ...criterion.source }),
+    origin: criterion.origin,
+    hard: criterion.hard ? compact({ ...criterion.hard }) : undefined,
+    unknown: criterion.unknown,
+    rationale: criterion.rationale,
+  });
 }
 
 export function toYaml(brief: Brief): BriefYaml {
@@ -121,10 +166,7 @@ export function toYaml(brief: Brief): BriefYaml {
       areas: brief.hard.areas,
       required: brief.hard.required,
     }),
-    soft: brief.soft.map((criterion) => ({
-      key: criterion.key,
-      weight: criterion.weight,
-    })),
+    criteria: brief.criteria.map(criterionToYaml) as BriefYaml["criteria"],
     unknown_policy: brief.unknownPolicy,
     budgets: {
       max_listings: brief.budgets.maxListings,
@@ -133,11 +175,17 @@ export function toYaml(brief: Brief): BriefYaml {
       vision_max: brief.budgets.visionMax,
     },
     assumptions: brief.assumptions,
+    warnings: brief.warnings,
   }) as BriefYaml;
 }
 
-export function parseBrief(text: string): Brief {
-  return fromYaml(BriefYamlSchema.parse(parseYaml(text)));
+export function parseBrief(text: string, pack?: DomainPack): Brief {
+  return fromYaml(BriefYamlSchema.parse(parseYaml(text)), pack);
+}
+
+export function parseBriefData(data: unknown, pack?: DomainPack): Brief {
+  if (typeof data === "string") return parseBrief(data, pack);
+  return fromYaml(BriefYamlSchema.parse(data), pack);
 }
 
 export function serializeBrief(brief: Brief): string {
@@ -177,38 +225,93 @@ export function briefFromExtraction(
   raw: unknown,
 ): Brief {
   const parsed = BriefYamlSchema.parse(raw ?? {});
-  const weights = new Map(
-    pack.defaultCriteria.map((criterion) => [criterion.key, criterion.weight]),
-  );
-  for (const item of parsed.soft ?? []) {
-    const key = resolveKey(pack, item.key);
-    if (key && weights.has(key)) weights.set(key, item.weight);
+  const warnings = [...(parsed.warnings ?? [])];
+  let criteria = parsed.criteria?.length
+    ? normaliseCriteria(parsed.criteria, pack, warnings)
+    : parsed.soft?.length
+      ? normaliseCriteria(
+          legacyCriteria(pack, parsed.soft, warnings),
+          pack,
+          warnings,
+        )
+      : [];
+
+  if (criteria.length === 0) {
+    criteria = fallbackCriteria(pack);
+    warnings.push(
+      `no criteria were extracted; using ${pack.id} suggestions as a fallback`,
+    );
   }
 
-  if (parsed.hard?.bedrooms) weights.delete("bedrooms");
-  if (!parsed.anchors?.commute && !parsed.anchors?.work) weights.delete("commute");
-
-  if (parsed.hard?.required) {
+  const hard: HardConstraints = {
+    rentMax: parsed.hard?.rent_max,
+    bedrooms: parsed.hard?.bedrooms,
+    areas: parsed.hard?.areas,
+    required: parsed.hard?.required,
+  };
+  if (hard.required) {
     const resolved: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(parsed.hard.required)) {
+    for (const [key, value] of Object.entries(hard.required)) {
       resolved[resolveKey(pack, key) ?? key] = value;
     }
-    parsed.hard.required = resolved;
+    hard.required = resolved;
   }
 
-  const candidate: BriefYaml = {
+  const brief: Brief = {
     version: 1,
     domain: pack.id,
     prompt,
-    anchors: parsed.anchors,
-    hard: parsed.hard,
-    soft: [...weights].map(([key, weight]) => ({ key, weight })),
-    unknown_policy: parsed.unknown_policy,
-    budgets: parsed.budgets,
-    assumptions: parsed.assumptions,
+    anchors: {
+      work: parsed.anchors?.work,
+      commute: parsed.anchors?.commute
+        ? {
+            mode: parsed.anchors.commute.mode ?? "drive",
+            maxMinutes: parsed.anchors.commute.max_minutes,
+            hard: parsed.anchors.commute.hard ?? false,
+          }
+        : undefined,
+    },
+    hard,
+    criteria,
+    unknownPolicy: parsed.unknown_policy ?? "flag",
+    budgets: {
+      maxListings:
+        parsed.budgets?.max_listings ?? DEFAULT_BUDGETS.maxListings,
+      maxUsd: parsed.budgets?.max_usd ?? DEFAULT_BUDGETS.maxUsd,
+      maxMinutes:
+        parsed.budgets?.max_minutes ?? DEFAULT_BUDGETS.maxMinutes,
+      visionMax: parsed.budgets?.vision_max ?? DEFAULT_BUDGETS.visionMax,
+    },
+    assumptions: parsed.assumptions ?? [],
+    warnings,
   };
 
-  const brief = fromYaml(BriefYamlSchema.parse(candidate));
+  brief.criteria = brief.criteria.filter((criterion) => {
+    if (
+      criterion.source.type === "derived" &&
+      criterion.source.evaluator === "commute" &&
+      !brief.anchors.commute &&
+      !brief.anchors.work
+    ) {
+      return false;
+    }
+    if (
+      criterion.source.type === "field" &&
+      criterion.source.field === "bedrooms" &&
+      brief.hard.bedrooms
+    ) {
+      return false;
+    }
+    if (
+      criterion.source.type === "field" &&
+      criterion.source.field === "rent" &&
+      brief.hard.rentMax !== undefined
+    ) {
+      return false;
+    }
+    return true;
+  });
+
   brief.assumptions = [
     ...new Set([...brief.assumptions, ...deriveAssumptions(brief)]),
   ];
@@ -234,10 +337,28 @@ function deriveAssumptions(brief: Brief): string[] {
       }`,
     );
   }
-  if (brief.soft.some((criterion) => criterion.key === "sunlight")) {
-    assumptions.push("sunlight is inferred from photos, not guaranteed");
+  if (brief.criteria.some((criterion) => criterion.source.type === "image")) {
+    assumptions.push("image criteria are inferred from photos, not guaranteed");
   }
-  if (!brief.hard.bedrooms && brief.soft.some((c) => c.key === "bedrooms")) {
+  if (brief.criteria.some((criterion) => criterion.source.type === "text")) {
+    assumptions.push("text criteria depend on what the listing description says");
+  }
+  const suggested = brief.criteria.filter(
+    (criterion) => criterion.origin === "suggested",
+  ).length;
+  if (suggested > 0) {
+    assumptions.push(
+      `${suggested} suggested criteria included; remove any you do not want before starting`,
+    );
+  }
+  if (
+    !brief.hard.bedrooms &&
+    brief.criteria.some(
+      (criterion) =>
+        criterion.source.type === "field" &&
+        criterion.source.field === "bedrooms",
+    )
+  ) {
     assumptions.push("bedroom count is treated as a soft preference");
   }
   if (brief.unknownPolicy === "flag") {
@@ -248,24 +369,53 @@ function deriveAssumptions(brief: Brief): string[] {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-export function applyBriefDelta(brief: Brief, delta: BriefDelta): Brief {
+export function applyBriefDelta(
+  brief: Brief,
+  delta: BriefDelta,
+  pack?: DomainPack,
+): Brief {
   const next = structuredClone(brief);
   next.version = brief.version + 1;
 
   if (delta.setWeights) {
-    const weights = new Map(
-      next.soft.map((criterion) => [criterion.key, criterion.weight]),
-    );
-    for (const [key, weight] of Object.entries(delta.setWeights)) {
-      weights.set(key, clamp01(weight));
+    for (const criterion of next.criteria) {
+      const weight = delta.setWeights[criterion.key];
+      if (weight !== undefined) criterion.weight = clamp01(weight);
     }
-    next.soft = [...weights].map(([key, weight]) => ({ key, weight }));
+  }
+
+  if (delta.addCriteria?.length) {
+    const added = normaliseCriteria(delta.addCriteria, pack, next.warnings);
+    const byKey = new Map(next.criteria.map((criterion) => [criterion.key, criterion]));
+    for (const criterion of added) byKey.set(criterion.key, criterion);
+    next.criteria = [...byKey.values()];
+  }
+
+  if (delta.features?.length && pack) {
+    const byKey = new Map(next.criteria.map((criterion) => [criterion.key, criterion]));
+    for (const featureKey of delta.features) {
+      const feature = pack.imageFeatures.find(
+        (candidate) =>
+          candidate.key === featureKey ||
+          (candidate.aliases ?? []).includes(featureKey) ||
+          candidate.label.toLowerCase() === featureKey.toLowerCase(),
+      );
+      if (!feature) continue;
+      const criterion = criterionFromImageFeature(feature);
+      byKey.set(criterion.key, criterion);
+    }
+    next.criteria = [...byKey.values()];
+  }
+
+  if (delta.removeCriteria?.length) {
+    const remove = new Set(delta.removeCriteria);
+    next.criteria = next.criteria.filter(
+      (criterion) => !remove.has(criterion.key),
+    );
   }
 
   if (delta.hard) {
-    next.hard = {
-      ...mergeHard(next.hard, delta.hard),
-    };
+    next.hard = mergeHard(next.hard, delta.hard);
   }
 
   if (delta.commute) {
@@ -313,6 +463,39 @@ function mergeHard(
   return merged;
 }
 
+function sourceLabel(criterion: CriterionSpec): string {
+  switch (criterion.source.type) {
+    case "field":
+      return `field:${criterion.source.field}`;
+    case "derived":
+      return `derived:${criterion.source.evaluator}`;
+    case "text":
+      return "text";
+    case "image":
+      return "image";
+  }
+}
+
+function hardLabel(criterion: CriterionSpec): string {
+  const hard = criterion.hard;
+  if (!hard) return "";
+  switch (hard.op) {
+    case "eq":
+      return ` · hard ${JSON.stringify(hard.value)}`;
+    case "in":
+      return ` · hard in ${JSON.stringify(hard.values)}`;
+    case "lte":
+      return ` · hard <= ${hard.value}`;
+    case "gte":
+      return ` · hard >= ${hard.value}`;
+    case "range": {
+      const min = hard.min ?? "-∞";
+      const max = hard.max ?? "∞";
+      return ` · hard ${min}..${max}`;
+    }
+  }
+}
+
 export function echoBrief(brief: Brief): string {
   const lines: string[] = [];
   const hard: string[] = [];
@@ -324,12 +507,43 @@ export function echoBrief(brief: Brief): string {
     hard.push(max === undefined ? `beds >= ${min}` : `beds ${min}-${max}`);
   }
   if (brief.hard.areas?.length) hard.push(`areas: ${brief.hard.areas.join(", ")}`);
+  if (brief.hard.required && Object.keys(brief.hard.required).length) {
+    hard.push(
+      `required: ${Object.entries(brief.hard.required)
+        .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+        .join(", ")}`,
+    );
+  }
   lines.push(`Hard: ${hard.length ? hard.join(" · ") : "none"}`);
 
-  const soft = brief.soft
-    .map((criterion) => `${criterion.key} ${criterion.weight.toFixed(2)}`)
-    .join(" · ");
-  lines.push(`Soft: ${soft || "none"}`);
+  const explicit = brief.criteria.filter(
+    (criterion) => criterion.origin === "explicit",
+  );
+  const suggested = brief.criteria.filter(
+    (criterion) => criterion.origin === "suggested",
+  );
+
+  if (explicit.length) {
+    lines.push("Criteria:");
+    for (const criterion of explicit) {
+      lines.push(
+        `  - ${criterion.label} ${criterion.weight.toFixed(2)} [${sourceLabel(criterion)}]${hardLabel(criterion)}`,
+      );
+    }
+  } else {
+    lines.push("Criteria: none");
+  }
+
+  if (suggested.length) {
+    lines.push("Suggested:");
+    for (const criterion of suggested) {
+      lines.push(
+        `  - ${criterion.label} ${criterion.weight.toFixed(2)} [${sourceLabel(criterion)}]${
+          criterion.rationale ? ` — ${criterion.rationale}` : ""
+        }`,
+      );
+    }
+  }
 
   if (brief.anchors.commute) {
     const commute = brief.anchors.commute;
@@ -347,5 +561,10 @@ export function echoBrief(brief: Brief): string {
   for (const assumption of brief.assumptions) {
     lines.push(`Assumed: ${assumption}`);
   }
+  for (const warning of brief.warnings) {
+    lines.push(`Warning: ${warning}`);
+  }
   return lines.join("\n");
 }
+
+export { criterionFactKey };
