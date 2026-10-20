@@ -174,6 +174,7 @@ export async function main(
     pack,
     brief,
     paused: false,
+    token: process.env.HARNESS_TOKEN,
   };
 
   const deps: RunnerDeps = {

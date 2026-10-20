@@ -176,3 +176,20 @@ test("export returns CSV and bad feedback is rejected", async () => {
     },
   );
 });
+
+test("control API requires a bearer token when configured", async () => {
+  await withServer(
+    (state) => {
+      state.token = "secret";
+    },
+    async (baseUrl) => {
+      const denied = await fetch(`${baseUrl}/status`);
+      assert.equal(denied.status, 401);
+
+      const allowed = await fetch(`${baseUrl}/status`, {
+        headers: { authorization: "Bearer secret" },
+      });
+      assert.equal(allowed.status, 200);
+    },
+  );
+});

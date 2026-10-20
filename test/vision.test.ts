@@ -169,6 +169,7 @@ test("media cache writes hashed files and rejects non-images", async () => {
     const cached = await cacheImage({
       url: "https://cdn.test/a.png",
       dir,
+      resolve: async () => ["93.184.216.34"],
       fetchImpl: async () =>
         new Response(bytes, {
           status: 200,
@@ -185,6 +186,7 @@ test("media cache writes hashed files and rejects non-images", async () => {
         cacheImage({
           url: "https://cdn.test/a.html",
           dir,
+          resolve: async () => ["93.184.216.34"],
           fetchImpl: async () =>
             new Response("html", {
               status: 200,
@@ -199,6 +201,7 @@ test("media cache writes hashed files and rejects non-images", async () => {
         cacheImage({
           url: "https://cdn.test/big.png",
           dir,
+          resolve: async () => ["93.184.216.34"],
           maxBytes: 2,
           fetchImpl: async () =>
             new Response(Buffer.from([1, 2, 3]), {
@@ -208,6 +211,28 @@ test("media cache writes hashed files and rejects non-images", async () => {
         }),
       /too large/,
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("media cache refuses private hosts before fetching", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "harness-media-"));
+  let called = false;
+  try {
+    await assert.rejects(
+      () =>
+        cacheImage({
+          url: "http://127.0.0.1/internal.png",
+          dir,
+          fetchImpl: async () => {
+            called = true;
+            return new Response(Buffer.from([1]), { status: 200 });
+          },
+        }),
+      /blocked/,
+    );
+    assert.equal(called, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

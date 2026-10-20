@@ -16,6 +16,7 @@ export interface ControlState {
   pack: DomainPack;
   brief: Brief;
   paused: boolean;
+  token?: string;
   runId?: number;
   lastSummary?: unknown;
   onResearch?: (brief: Brief) => Promise<unknown>;
@@ -77,12 +78,20 @@ function statusBody(state: ControlState) {
   };
 }
 
+function authorized(req: IncomingMessage, token?: string): boolean {
+  if (!token) return true;
+  return req.headers.authorization === `Bearer ${token}`;
+}
+
 export function createControlServer(state: ControlState): ControlServer {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
     try {
+      if (!authorized(req, state.token)) {
+        return send(res, 401, { error: "unauthorized" });
+      }
       if (req.method === "GET" && path === "/status") {
         return send(res, 200, statusBody(state));
       }

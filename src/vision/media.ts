@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { assertSafeHttpUrl, type SafeUrlOptions } from "../util/net.ts";
 
 const DEFAULT_MAX_BYTES = 15 * 1024 * 1024;
 
@@ -29,9 +30,15 @@ export async function cacheImage(input: {
   dir: string;
   fetchImpl?: typeof fetch;
   maxBytes?: number;
+  allowedHosts?: string[];
+  resolve?: SafeUrlOptions["resolve"];
 }): Promise<CachedImage> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const response = await fetchImpl(input.url);
+  const safeUrl = await assertSafeHttpUrl(input.url, {
+    allowedHosts: input.allowedHosts,
+    resolve: input.resolve,
+  });
+  const response = await fetchImpl(safeUrl.toString());
   if (!response.ok) {
     throw new Error(`image fetch ${response.status}: ${input.url}`);
   }
