@@ -139,6 +139,7 @@ interface Progress {
   stage: "collect" | "text" | "vision";
   seeds: string[];
   index: number;
+  html?: number;
 }
 
 const message = (error: unknown) =>
@@ -178,9 +179,25 @@ export async function runCampaign(
     }
   }
 
-  const checkpoint = (next: Progress) => {
-    progress = next;
-    store.checkpointRun(run.id, JSON.stringify(next), spend);
+  let htmlFallbacks = progress?.html ?? 0;
+
+  const checkpoint = (next: Omit<Progress, "html">) => {
+    progress = { ...next, html: htmlFallbacks };
+    store.checkpointRun(run.id, JSON.stringify(progress), spend);
+  };
+
+  const allowFallback = (item: RawListing): boolean => {
+    if (!item.fallback) return true;
+    if (brief.sources.web === "structured-only") {
+      log("info", `html fallback skipped (structured-only): ${item.url}`);
+      return false;
+    }
+    if (htmlFallbacks >= brief.budgets.htmlMax) {
+      log("info", `html fallback budget reached; skipped ${item.url}`);
+      return false;
+    }
+    htmlFallbacks += 1;
+    return true;
   };
 
   let seeds: string[] = progress?.seeds ?? [];
@@ -287,6 +304,7 @@ export async function runCampaign(
 
         const ingested: RawListing[] = [];
         for (const item of items) {
+          if (!allowFallback(item)) continue;
           ingest(store, recipe, item, observe);
           ingested.push(item);
           collected += 1;
@@ -308,7 +326,9 @@ export async function runCampaign(
             try {
               detailPage = await deps.browser.newPage(item.url);
               const detail = await runListing(detailPage, recipe, item.url);
-              ingest(store, recipe, detail, observe);
+              if (allowFallback(detail)) {
+                ingest(store, recipe, detail, observe);
+              }
               detailCount += 1;
             } catch (error) {
               const text = `detail ${item.url}: ${message(error)}`;
@@ -531,7 +551,9 @@ function ingest(
     url: item.url,
     raw: item.raw,
   });
-  const sourceRef = `recipe:${recipe.id}@${recipe.version}`;
+  const sourceRef =
+    item.sourceRef ?? `recipe:${recipe.id}@${recipe.version}`;
+  const confidence = item.confidence ?? 1;
   const observedAt = observe();
 
   for (const [key, value] of Object.entries(item.fields)) {
@@ -542,7 +564,7 @@ function ingest(
       value,
       sourceType: "page",
       sourceRef,
-      confidence: 1,
+      confidence,
       observedAt,
     });
   }
@@ -554,7 +576,7 @@ function ingest(
       value: item.media,
       sourceType: "page",
       sourceRef,
-      confidence: 1,
+      confidence,
       observedAt,
     });
   }
@@ -568,7 +590,7 @@ function ingest(
       value: description,
       sourceType: "page",
       sourceRef,
-      confidence: 1,
+      confidence,
       observedAt,
     });
   }

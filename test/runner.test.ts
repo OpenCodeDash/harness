@@ -498,3 +498,82 @@ test("source policy excludes denied sites from discovery", async () => {
     store.close();
   }
 });
+
+function htmlFallbackItem(externalId: string, url: string) {
+  return {
+    source: "jsonld",
+    externalId,
+    url,
+    fields: {
+      title: `Fallback ${externalId}`,
+      description: `Fallback listing ${externalId} with enough text to be useful.`,
+      price: 1000,
+    },
+    media: [],
+    sourceRef: "generic:html",
+    confidence: 0.5,
+    fallback: true,
+    raw: {},
+  };
+}
+
+test("html fallback is budget-gated and tagged with generic provenance", async () => {
+  const store = CampaignStore.open(":memory:");
+  const urls = [
+    "https://shop.test/listing/1",
+    "https://shop.test/listing/2",
+  ];
+  const browser = new FakeBrowser((url) => htmlFallbackItem(url, url));
+  try {
+    const brief = makeBrief({
+      budgets: {
+        maxListings: 10,
+        maxUsd: 15,
+        maxMinutes: 5,
+        visionMax: 5,
+        htmlMax: 1,
+      },
+    });
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch(urls), visitDetails: false },
+      { brief, pack: propertyPack },
+    );
+
+    assert.equal(summary.collected, 1);
+    assert.equal(store.listListings().length, 1);
+    const listing = store.findListing("jsonld", urls[0]!)!;
+    const evidence = store.listEvidence(listing.id);
+    assert.ok(
+      evidence.every(
+        (entry) =>
+          entry.sourceRef === "generic:html" && entry.confidence === 0.5,
+      ),
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("structured-only source scope rejects html fallback listings", async () => {
+  const store = CampaignStore.open(":memory:");
+  const browser = new FakeBrowser((url) => htmlFallbackItem(url, url));
+  try {
+    const brief = makeBrief({
+      sources: { web: "structured-only" },
+    });
+    const summary = await runCampaign(
+      {
+        store,
+        browser,
+        search: new FakeSearch(["https://shop.test/listing/1"]),
+        visitDetails: false,
+      },
+      { brief, pack: propertyPack },
+    );
+
+    assert.equal(summary.collected, 0);
+    assert.equal(store.listListings().length, 0);
+  } finally {
+    store.close();
+  }
+});

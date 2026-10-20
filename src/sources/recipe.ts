@@ -6,6 +6,12 @@ export interface RawListing {
   url: string;
   fields: Record<string, unknown>;
   media: string[];
+  /** Provenance override, e.g. "generic:html" for the text fallback. */
+  sourceRef?: string;
+  /** Evidence confidence for page-derived fields. Defaults to 1. */
+  confidence?: number;
+  /** True when the listing came from the generic HTML fallback. */
+  fallback?: boolean;
   raw?: unknown;
 }
 
@@ -81,12 +87,24 @@ export function validateRawListing(
         .filter((entry): entry is string => Boolean(entry))
     : [];
 
+  const sourceRef =
+    typeof item.sourceRef === "string" && item.sourceRef.trim()
+      ? item.sourceRef.trim()
+      : undefined;
+  const confidence =
+    typeof item.confidence === "number" && Number.isFinite(item.confidence)
+      ? Math.min(1, Math.max(0, item.confidence))
+      : undefined;
+
   return {
     source: recipe.id,
     externalId,
     url,
     fields,
     media,
+    ...(sourceRef ? { sourceRef } : {}),
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(item.fallback === true ? { fallback: true } : {}),
     raw: item.raw,
   };
 }
