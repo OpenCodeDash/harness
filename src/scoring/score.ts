@@ -307,7 +307,6 @@ export function checkHardConstraints(
       stringFact(facts, "address"),
       stringFact(facts, "area"),
       stringFact(facts, "district"),
-      stringFact(facts, "region"),
     ]
       .filter((part): part is string => Boolean(part))
       .join(" ")

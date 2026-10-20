@@ -244,3 +244,14 @@ test("area matching uses suburb, address, district, and region", () => {
   assert.equal(fail.hardPass, false);
   assert.match(fail.hardFailures[0] ?? "", /outside areas/);
 });
+
+test("region alone does not satisfy a city area filter", () => {
+  const brief = makeBrief({ hard: { areas: ["Wellington"] } });
+  const result = scoreListing(
+    brief,
+    propertyPack,
+    facts(fact("suburb", "Titahi Bay"), fact("district", "Porirua"), fact("region", "Wellington")),
+  );
+  assert.equal(result.hardPass, false);
+  assert.match(result.hardFailures[0] ?? "", /outside areas/);
+});

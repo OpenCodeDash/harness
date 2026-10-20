@@ -288,3 +288,38 @@ test("collection stops at the listing budget", async () => {
     store.close();
   }
 });
+
+test("detail visits do not run past the listing budget", async () => {
+  const store = CampaignStore.open(":memory:");
+  const browser = new FakeBrowser((url) =>
+    url === SEARCH_URL
+      ? [item("1", LISTING_1, 600), item("2", LISTING_2, 620)]
+      : url === LISTING_1
+        ? {
+            source: "trademe",
+            externalId: "1",
+            url: LISTING_1,
+            fields: { description: "detail" },
+            media: [],
+            raw: {},
+          }
+        : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: true, detailLimit: 10 },
+      {
+        brief: makeBrief({
+          budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5 },
+        }),
+        pack: propertyPack,
+      },
+    );
+    assert.equal(summary.stopReason, "budget");
+    assert.equal(summary.collected, 1);
+    assert.equal(store.listListings().length, 1);
+    assert.equal(browser.calls.filter((url) => url === LISTING_1).length, 0);
+  } finally {
+    store.close();
+  }
+});

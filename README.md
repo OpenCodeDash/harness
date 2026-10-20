@@ -40,7 +40,32 @@ npm run dev -- --brief brief.yaml --now
 npm run dev -- --prompt "..." --serve
 ```
 
-The control API is local-only:
+### Daemon
+
+```sh
+npm run daemon
+```
+
+A long-lived, multi-campaign server for dash/backdash. It keeps one active run at a time and
+exposes:
+
+```
+GET  /health
+GET  /campaigns
+POST /campaigns                    {prompt | brief, pack?, name?}
+GET  /campaigns/:id
+GET  /campaigns/:id/results
+GET  /campaigns/:id/export.csv
+GET  /campaigns/:id/events         SSE
+POST /campaigns/:id/feedback       {text}
+POST /campaigns/:id/pause|resume|stop
+```
+
+Daemon env: `HARNESS_ROOT` (default `campaigns`), `HARNESS_PORT` (7332), `HARNESS_HOST`
+(127.0.0.1), `HARNESS_TOKEN` (bearer auth; set it before exposing). With no token the API is
+unauthenticated and warns on startup.
+
+The single-campaign control API is local-only:
 
 - `GET /status`
 - `GET /brief`

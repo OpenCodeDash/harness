@@ -70,11 +70,17 @@ const DETAIL_STATE = {
             canonicalPath:
               "/property/residential/rent/wellington/johnsonville/listing/6179337650",
             body: "Renovated and sunny.",
+            priceDisplay: "$720 per week",
+            geographicLocation: { latitude: -41.22, longitude: 174.8 },
             photos: [
               { value: { thumbnail: "https://x/thumb/1.jpg", fullSize: "https://x/full/1.jpg" } },
               { value: { fullSize: "https://x/full/2.jpg" } },
             ],
             attributes: [
+              { name: "location", value: "1/1A Pollen Street, Johnsonville, Wellington, Wellington" },
+              { name: "suburb", value: "Johnsonville" },
+              { name: "district", value: "Wellington" },
+              { name: "region", value: "Wellington" },
               { name: "bedrooms", value: "3 bedrooms" },
               { name: "bathrooms", value: "1 bathroom" },
               { name: "property_type", value: "House" },
@@ -128,6 +134,16 @@ test("maps Trade Me detail state into description, photos, and attributes", () =
   };
   assert.equal(detail.externalId, "6179337650");
   assert.equal(detail.fields.description, "Renovated and sunny.");
+  assert.equal(detail.fields.rent, 720);
+  assert.equal(
+    detail.fields.address,
+    "1/1A Pollen Street, Johnsonville, Wellington, Wellington",
+  );
+  assert.equal(detail.fields.suburb, "Johnsonville");
+  assert.equal(detail.fields.district, "Wellington");
+  assert.equal(detail.fields.region, "Wellington");
+  assert.equal(detail.fields.lat, -41.22);
+  assert.equal(detail.fields.lon, 174.8);
   assert.equal(detail.fields.bedrooms, 3);
   assert.equal(detail.fields.bathrooms, 1);
   assert.equal(detail.fields.property_type, "house");

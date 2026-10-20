@@ -133,6 +133,12 @@ export function extractListingDetail(state: unknown): unknown {
     .filter(Boolean);
 
   const parking = attribute("off-street_parking") ?? attribute("parking");
+  const furnishings = attribute("furnishings");
+  const whiteware = attribute("whiteware");
+  const pets = attribute("pets");
+  const geo = item.geographicLocation as
+    | { latitude?: number; longitude?: number }
+    | undefined;
   const canonical =
     typeof item.canonicalPath === "string" ? item.canonicalPath : "";
 
@@ -142,12 +148,32 @@ export function extractListingDetail(state: unknown): unknown {
     url: canonical ? `https://www.trademe.co.nz/a${canonical}` : "",
     fields: {
       description: item.body,
+      rent:
+        typeof item.rentPerWeek === "number"
+          ? item.rentPerWeek
+          : parseNumber(item.priceDisplay),
       bedrooms: parseNumber(attribute("bedrooms")),
       bathrooms: parseNumber(attribute("bathrooms")),
-      property_type: mapType(attribute("property_type")),
-      available_from: attribute("available"),
-      furnished: attribute("furnishings") === "Yes",
+      property_type: mapType(attribute("property_type") ?? item.propertyType),
+      available_from: attribute("available") ?? item.availableFrom,
+      furnished:
+        furnishings === undefined ? undefined : furnishings === "Yes",
+      whiteware: whiteware === undefined ? undefined : whiteware === "Yes",
+      pets:
+        pets === undefined
+          ? undefined
+          : /^no$/i.test(pets)
+            ? "no"
+            : /^yes$/i.test(pets)
+              ? "yes"
+              : "negotiable",
       parking: parking === undefined ? undefined : (parseNumber(parking) ?? 0) > 0,
+      address: attribute("location") ?? item.address,
+      suburb: attribute("suburb") ?? item.suburb,
+      district: attribute("district") ?? item.district,
+      region: attribute("region") ?? item.region,
+      lat: geo?.latitude,
+      lon: geo?.longitude,
     },
     media,
     raw: item,

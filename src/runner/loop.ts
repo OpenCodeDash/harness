@@ -41,7 +41,26 @@ export interface VisionAdapter {
 
 export interface RunnerControl {
   paused(): boolean;
+  stopped?(): boolean;
 }
+
+export type RunnerEvent =
+  | { type: "run.started"; runId: number }
+  | {
+      type: "stage";
+      stage: "discover" | "collect" | "vision" | "score" | "export";
+      discovered: number;
+      collected: number;
+      spendUsd: number;
+    }
+  | {
+      type: "run.finished";
+      runId: number;
+      stopReason: string;
+      collected: number;
+      hardPass: number;
+      spendUsd: number;
+    };
 
 export interface MediaCacheFn {
   (url: string): Promise<{ hash: string; path: string; mimeType: string }>;
@@ -61,6 +80,7 @@ export interface RunnerDeps {
   photosPerListing?: number;
   costPerVisionCallUsd?: number;
   control?: RunnerControl;
+  onEvent?: (event: RunnerEvent) => void;
   now?: () => string;
 }
 
@@ -110,6 +130,9 @@ export async function runCampaign(
 
   const errors: string[] = [];
   const paused = () => deps.control?.paused() ?? false;
+  const stopped = () => deps.control?.stopped?.() ?? false;
+  const emit = deps.onEvent ?? (() => {});
+  emit({ type: "run.started", runId: run.id });
   const observe = () => deps.now?.() ?? new Date().toISOString();
   const deadline = Date.now() + brief.budgets.maxMinutes * 60_000;
   const detailLimit = deps.detailLimit ?? 30;
@@ -137,15 +160,27 @@ export async function runCampaign(
     seeds = found;
     discovered = seeds.length;
     checkpoint({ stage: "collect", seeds, index: 0 });
+    emit({
+      type: "stage",
+      stage: "discover",
+      discovered,
+      collected: 0,
+      spendUsd: spend,
+    });
   }
 
-  let stopReason: "complete" | "paused" | "budget" = "complete";
+  let stopReason: "complete" | "paused" | "budget" | "stopped" = "complete";
   let collected = 0;
   let detailCount = 0;
 
   if (!progress || progress.stage === "collect") {
     const start = progress?.index ?? 0;
     for (let index = start; index < seeds.length; index += 1) {
+      if (stopped()) {
+        checkpoint({ stage: "collect", seeds, index });
+        stopReason = "stopped";
+        break;
+      }
       if (paused()) {
         checkpoint({ stage: "collect", seeds, index });
         stopReason = "paused";
@@ -184,12 +219,18 @@ export async function runCampaign(
         }
 
         if (
+          stopReason === "complete" &&
           !recipe.isListing(url) &&
           deps.visitDetails !== false &&
           detailCount < detailLimit
         ) {
           for (const item of items) {
-            if (detailCount >= detailLimit) break;
+            if (
+              detailCount >= detailLimit ||
+              collected >= brief.budgets.maxListings
+            ) {
+              break;
+            }
             if (paused()) break;
             let detailPage: RunnerPage | null = null;
             try {
@@ -216,6 +257,13 @@ export async function runCampaign(
     if (stopReason === "complete") {
       checkpoint({ stage: "vision", seeds, index: 0 });
     }
+    emit({
+      type: "stage",
+      stage: "collect",
+      discovered,
+      collected,
+      spendUsd: spend,
+    });
   }
 
   if (stopReason === "complete") {
@@ -224,24 +272,54 @@ export async function runCampaign(
       spend,
       photosPerListing,
       paused,
+      stopped,
       setSpend: (value: number) => {
         spend = value;
       },
-      stop: (reason: "paused" | "budget") => {
+      stop: (reason: "paused" | "budget" | "stopped") => {
         stopReason = reason;
       },
+    });
+    emit({
+      type: "stage",
+      stage: "vision",
+      discovered,
+      collected,
+      spendUsd: spend,
     });
   }
 
   const scored = scoreCampaign(store, brief, pack);
   persistScores(store, briefVersionId, scored.items);
+  emit({
+    type: "stage",
+    stage: "score",
+    discovered,
+    collected,
+    spendUsd: spend,
+  });
   const csv = scored.csv;
   if (deps.exportPath) {
     await mkdir(dirname(deps.exportPath), { recursive: true });
     await writeFile(deps.exportPath, csv, "utf8");
   }
+  emit({
+    type: "stage",
+    stage: "export",
+    discovered,
+    collected,
+    spendUsd: spend,
+  });
 
   store.finishRun(run.id, stopReason, spend);
+  emit({
+    type: "run.finished",
+    runId: run.id,
+    stopReason,
+    collected,
+    hardPass: scored.hardPass,
+    spendUsd: spend,
+  });
 
   return {
     runId: run.id,
@@ -400,8 +478,9 @@ async function addVision(
     spend: number;
     photosPerListing: number;
     paused: () => boolean;
+    stopped: () => boolean;
     setSpend: (value: number) => void;
-    stop: (reason: "paused" | "budget") => void;
+    stop: (reason: "paused" | "budget" | "stopped") => void;
   },
 ): Promise<void> {
   if (!deps.vision) return;
@@ -428,6 +507,11 @@ async function addVision(
   const costPerCall = deps.costPerVisionCallUsd ?? 0.01;
 
   for (let index = start; index < candidates.length; index += 1) {
+    if (state.stopped()) {
+      checkpoint({ stage: "vision", seeds, index });
+      state.stop("stopped");
+      return;
+    }
     if (state.paused()) {
       checkpoint({ stage: "vision", seeds, index });
       state.stop("paused");
