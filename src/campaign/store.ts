@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS recipe (
   code TEXT NOT NULL,
   last_ok_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS geo_cache (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  observed_at TEXT NOT NULL
+);
 `;
 
 type Row = Record<string, unknown>;
@@ -487,5 +493,27 @@ export class CampaignStore {
       code: String(row.code),
       lastOkAt: row.last_ok_at === null ? null : String(row.last_ok_at),
     };
+  }
+
+  getGeoCache(key: string): { value: unknown; observedAt: string } | null {
+    const row = this.db
+      .prepare("SELECT * FROM geo_cache WHERE key = ?")
+      .get(key) as Row | undefined;
+    if (!row) return null;
+    return {
+      value: parseJson(row.value_json),
+      observedAt: String(row.observed_at),
+    };
+  }
+
+  setGeoCache(key: string, value: unknown): void {
+    this.db
+      .prepare(
+        `INSERT INTO geo_cache (key, value_json, observed_at) VALUES (?, ?, ?)
+         ON CONFLICT (key) DO UPDATE SET
+           value_json = excluded.value_json,
+           observed_at = excluded.observed_at`,
+      )
+      .run(key, JSON.stringify(value), now());
   }
 }
