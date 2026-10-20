@@ -13,6 +13,12 @@ import {
 import { propertyPack } from "../src/domain/property.ts";
 import { carsPack } from "../src/domain/cars.ts";
 import { laptopsPack } from "../src/domain/laptops.ts";
+import { listPacks } from "../src/domain/index.ts";
+import {
+  jsonLdRecipe,
+  listRecipes,
+  trademeRecipe,
+} from "../src/sources/index.ts";
 
 test("renders templates and collapses empty placeholders", () => {
   assert.equal(
@@ -35,7 +41,7 @@ test("renders templates and collapses empty placeholders", () => {
   );
 });
 
-test("builds one query set per area without duplicates", () => {
+test("builds one query set per area from registered sources", () => {
   const brief = briefFromExtraction("rental", propertyPack, {
     hard: {
       rent_max: 650,
@@ -44,9 +50,7 @@ test("builds one query set per area without duplicates", () => {
       required: { property_type: "townhouse" },
     },
   });
-  const queries = buildDiscoveryQueries(brief, propertyPack, {
-    sources: ["trademe", "jsonld"],
-  });
+  const queries = buildDiscoveryQueries(brief, listRecipes());
 
   assert.ok(queries.some((q) => q.includes("Wellington")));
   assert.ok(queries.some((q) => q.includes("Petone")));
@@ -56,23 +60,98 @@ test("builds one query set per area without duplicates", () => {
   assert.ok(queries.every((q) => !q.includes("{")));
 });
 
-test("source-tagged templates are skipped when the source is unavailable", () => {
+test("only registered sources contribute queries", () => {
   const brief = briefFromExtraction("rental", propertyPack, {
     hard: { areas: ["Wellington"] },
   });
-  const without = buildDiscoveryQueries(brief, propertyPack, {
-    sources: ["jsonld"],
-  });
+  const without = buildDiscoveryQueries(brief, [jsonLdRecipe]);
   assert.ok(without.length > 0);
   assert.ok(without.every((q) => !q.includes("site:")));
 
-  const withSource = buildDiscoveryQueries(brief, propertyPack, {
-    sources: ["trademe"],
-  });
+  const withSource = buildDiscoveryQueries(brief, [trademeRecipe]);
   assert.ok(withSource.some((q) => q.startsWith("site:trademe.co.nz ")));
 });
 
-test("cross-domain packs render prompt, price, and field values", () => {
+test("source templates are filtered by domain and required values", () => {
+  const propertyBrief = briefFromExtraction("rental", propertyPack, {
+    hard: { areas: ["Wellington"], bedrooms: { min: 2, max: 2 } },
+  });
+  const propertyQueries = buildDiscoveryQueries(propertyBrief, listRecipes());
+  assert.ok(propertyQueries.some((q) => q.includes("2 bedroom")));
+  assert.ok(propertyQueries.every((q) => !q.includes("/motors")));
+  assert.ok(propertyQueries.every((q) => !q.includes("/computers")));
+
+  const genericBrief = {
+    ...briefFromExtraction("car or laptop", propertyPack, {}),
+    domain: "generic",
+  };
+  const genericQueries = buildDiscoveryQueries(genericBrief, listRecipes());
+  assert.ok(
+    genericQueries.every(
+      (q) => !q.includes("/motors") && !q.includes("/computers"),
+    ),
+  );
+
+  const fake = {
+    id: "fake",
+    discovery: {
+      label: "Fake",
+      queryTemplates: [
+        { template: "needs {area}", requires: ["area"] },
+        { template: "always {prompt}" },
+      ],
+    },
+  };
+  const noArea = briefFromExtraction("find me", propertyPack, {
+    hard: {},
+  });
+  assert.deepEqual(buildDiscoveryQueries(noArea, [fake]), ["always find me"]);
+});
+
+test("source integrations own their query templates", () => {
+  assert.ok(trademeRecipe.discovery?.sites?.includes("trademe.co.nz"));
+  assert.ok(
+    (trademeRecipe.discovery?.queryTemplates ?? []).some(
+      (template) =>
+        typeof template !== "string" &&
+        template.domains?.includes("cars") === true &&
+        template.site === "trademe.co.nz/motors",
+    ),
+  );
+  assert.ok(
+    (jsonLdRecipe.discovery?.queryTemplates ?? []).some(
+      (template) => typeof template === "string" || template.template === "{prompt}",
+    ),
+  );
+});
+
+test("source query templates only use known placeholders", () => {
+  const known = new Set([
+    "area",
+    "prompt",
+    "keywords",
+    "bedrooms",
+    "rent",
+    "price",
+    "property_type",
+  ]);
+  for (const pack of listPacks()) {
+    for (const field of pack.fields) known.add(field.key);
+  }
+  for (const recipe of listRecipes()) {
+    for (const raw of recipe.discovery?.queryTemplates ?? []) {
+      const template = typeof raw === "string" ? raw : raw.template;
+      for (const match of template.matchAll(/\{(\w+)\}/g)) {
+        assert.ok(
+          known.has(match[1]!),
+          `${recipe.id}: unknown placeholder {${match[1]}}`,
+        );
+      }
+    }
+  }
+});
+
+test("cross-domain queries render prompt, price, and field values", () => {
   const brief = briefFromExtraction("used Toyota Corolla under 15000 in Auckland", carsPack, {
     hard: {
       areas: ["Auckland"],
@@ -91,11 +170,9 @@ test("cross-domain packs render prompt, price, and field values", () => {
       },
     ],
   });
-  const queries = buildDiscoveryQueries(brief, carsPack, {
-    sources: ["trademe", "jsonld"],
-  });
+  const queries = buildDiscoveryQueries(brief, listRecipes());
 
-  assert.ok(queries.some((q) => q.includes("under 15000")));
+  assert.ok(queries.some((q) => q.includes("15000")));
   assert.ok(queries.some((q) => q.includes("Toyota Corolla")));
   assert.ok(
     queries.some((q) => q.startsWith("site:trademe.co.nz/motors ")),
@@ -105,7 +182,7 @@ test("cross-domain packs render prompt, price, and field values", () => {
     hard: { areas: ["Wellington"] },
   });
   assert.ok(
-    buildDiscoveryQueries(laptopBrief, laptopsPack).some((q) =>
+    buildDiscoveryQueries(laptopBrief, listRecipes()).some((q) =>
       q.includes("laptop"),
     ),
   );

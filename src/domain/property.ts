@@ -160,22 +160,4 @@ export const propertyPack: DomainPack = {
       origin: "suggested",
     },
   ],
-  queryTemplates: [
-    { template: "{bedrooms} bedroom {property_type} for rent {area}" },
-    { template: "{bedrooms} bedroom house to rent {area}" },
-    { template: "rental {area} {rent}" },
-    { template: "{prompt}" },
-    { template: "property manager rentals {area}" },
-    { template: "apartments to rent {area} {rent}" },
-    {
-      template: "{area} rent {bedrooms} bedroom",
-      source: "trademe",
-      site: "trademe.co.nz",
-    },
-    {
-      template: "{prompt}",
-      source: "trademe",
-      site: "trademe.co.nz",
-    },
-  ],
 };

@@ -189,6 +189,65 @@ export const trademeRecipe: Recipe = {
   domain: "property",
   version: 1,
   priority: 10,
+  discovery: {
+    label: "Trade Me",
+    sites: ["trademe.co.nz"],
+    queryTemplates: [
+      { template: "{prompt}", site: "trademe.co.nz" },
+      {
+        template: "{area} rent {bedrooms} bedroom",
+        domains: ["property"],
+        requires: ["area"],
+        site: "trademe.co.nz",
+      },
+      {
+        template: "rental {area} {rent}",
+        domains: ["property"],
+        requires: ["area"],
+        site: "trademe.co.nz",
+      },
+      {
+        template: "{area} {property_type} for rent",
+        domains: ["property"],
+        requires: ["area"],
+        site: "trademe.co.nz",
+      },
+      {
+        template: "{prompt}",
+        domains: ["cars"],
+        site: "trademe.co.nz/motors",
+      },
+      {
+        template: "{brand} {model} {area}",
+        domains: ["cars"],
+        requires: ["brand"],
+        site: "trademe.co.nz/motors",
+      },
+      {
+        template: "used car {area} {price}",
+        domains: ["cars"],
+        requires: ["area"],
+        site: "trademe.co.nz/motors",
+      },
+      {
+        template: "{prompt}",
+        domains: ["laptops"],
+        site: "trademe.co.nz/computers",
+      },
+      {
+        template: "{brand} {model} laptop {area}",
+        domains: ["laptops"],
+        requires: ["brand"],
+        site: "trademe.co.nz/computers",
+      },
+      {
+        template: "used laptop {area} {price}",
+        domains: ["laptops"],
+        requires: ["area"],
+        site: "trademe.co.nz/computers",
+      },
+    ],
+  },
   matches: (url) => {
     try {
       const parsed = new URL(url);

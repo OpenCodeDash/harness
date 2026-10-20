@@ -177,20 +177,4 @@ export const laptopsPack: DomainPack = {
       origin: "suggested",
     },
   ],
-  queryTemplates: [
-    { template: "{prompt}" },
-    { template: "{brand} {model} laptop {area}" },
-    { template: "used laptop {area} under {price}" },
-    { template: "{ram_gb}gb ram {storage_gb}gb {area}" },
-    {
-      template: "{prompt}",
-      source: "trademe",
-      site: "trademe.co.nz/computers",
-    },
-    {
-      template: "{brand} {model} laptop",
-      source: "trademe",
-      site: "trademe.co.nz/computers",
-    },
-  ],
 };

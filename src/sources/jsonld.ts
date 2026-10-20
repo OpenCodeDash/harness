@@ -353,6 +353,18 @@ export const jsonLdRecipe: Recipe = {
   domain: "generic",
   version: 1,
   priority: 0,
+  discovery: {
+    label: "Open web (JSON-LD)",
+    queryTemplates: [
+      { template: "{prompt}" },
+      {
+        template: "{area} {bedrooms} bedroom",
+        requires: ["area", "bedrooms"],
+      },
+      { template: "{area} {brand} {model}", requires: ["area", "brand"] },
+      { template: "{area} {price}", requires: ["area", "price"] },
+    ],
+  },
   matches: (url) => /^https?:\/\//i.test(url) && !NON_HTML.test(url),
   isListing: () => true,
   searchReady: `() => document.readyState !== 'loading'`,

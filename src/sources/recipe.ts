@@ -1,3 +1,5 @@
+import type { SourceDiscovery } from "./discovery.ts";
+
 export interface RawListing {
   source: string;
   externalId: string;
@@ -18,6 +20,8 @@ export interface Recipe {
   version: number;
   /** Higher wins when several recipes match the same URL. Defaults to 0. */
   priority?: number;
+  /** Discovery metadata for this source integration. */
+  discovery?: SourceDiscovery;
   matches(url: string): boolean;
   isListing(url: string): boolean;
   searchReady: string;

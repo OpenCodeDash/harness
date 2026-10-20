@@ -56,27 +56,6 @@ test("criteria weights are in range and image features are promptable", () => {
   }
 });
 
-test("query templates only use known placeholders", () => {
-  const known = new Set([
-    "area",
-    "prompt",
-    "keywords",
-    "bedrooms",
-    "rent",
-    "price",
-    "property_type",
-  ]);
-  for (const pack of listPacks()) {
-    for (const field of pack.fields) known.add(field.key);
-    for (const raw of pack.queryTemplates) {
-      const template = typeof raw === "string" ? raw : raw.template;
-      for (const match of template.matchAll(/\{(\w+)\}/g)) {
-        assert.ok(known.has(match[1]!), `${pack.id}: unknown placeholder {${match[1]}}`);
-      }
-    }
-  }
-});
-
 test("enum normalizers cover their options", () => {
   for (const pack of listPacks()) {
     for (const criterion of pack.defaultCriteria) {

@@ -28,10 +28,10 @@ Add a **generic JSON-LD recipe** with the lowest priority in the registry:
   `lon`, `availability`, `seller`, plus images.
 - It never guesses from free HTML. A page without usable JSON-LD returns no listing and fails
   validation loudly, exactly like a drifted site recipe.
-- Discovery query templates are source-aware. A template may name the recipe it feeds and a
-  `site:` restriction; discovery skips it when that recipe is not registered, and generic
-  templates use the brief prompt, area, price limit, and hard field values instead of
-  property-only placeholders.
+- Discovery query templates live on the source integration. A template may name a `site:`
+  restriction and the domains or values it requires; discovery only asks registered sources
+  and skips templates that do not fit the brief (ADR 0013). Generic templates use the brief
+  prompt, area, price limit, and hard field values instead of property-only placeholders.
 
 ## Consequences
 

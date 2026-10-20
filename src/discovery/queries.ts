@@ -1,10 +1,9 @@
 import type { Brief } from "../brief/types.ts";
+import type { CriterionSpec, HardPredicate } from "../domain/types.ts";
 import type {
-  CriterionSpec,
-  DomainPack,
-  HardPredicate,
-  QueryTemplate,
-} from "../domain/types.ts";
+  DiscoverySource,
+  SourceQueryTemplate,
+} from "../sources/discovery.ts";
 
 export type QueryValues = Record<string, string>;
 
@@ -121,37 +120,40 @@ export function renderTemplate(
 }
 
 function normaliseTemplate(
-  template: string | QueryTemplate,
-): QueryTemplate {
+  template: string | SourceQueryTemplate,
+): SourceQueryTemplate {
   return typeof template === "string" ? { template } : template;
-}
-
-export interface QueryOptions {
-  /** Recipe ids available for extraction. Source-tagged templates are skipped when absent. */
-  sources?: string[];
 }
 
 export function buildDiscoveryQueries(
   brief: Brief,
-  pack: DomainPack,
-  options: QueryOptions = {},
+  sources: DiscoverySource[],
 ): string[] {
   const areas = brief.hard.areas?.length ? brief.hard.areas : [""];
-  const available = options.sources ? new Set(options.sources) : null;
   const queries = new Set<string>();
 
   for (const area of areas) {
     const values = buildQueryValues(brief, area);
-    for (const raw of pack.queryTemplates) {
-      const template = normaliseTemplate(raw);
-      if (template.source && available && !available.has(template.source)) {
-        continue;
+    for (const source of sources) {
+      for (const raw of source.discovery?.queryTemplates ?? []) {
+        const template = normaliseTemplate(raw);
+        if (
+          template.domains?.length &&
+          !template.domains.includes(brief.domain)
+        ) {
+          continue;
+        }
+        if (
+          template.requires?.some((key) => !values[key]?.trim())
+        ) {
+          continue;
+        }
+        let query = renderTemplate(template.template, values);
+        if (template.site && !/site:/i.test(query)) {
+          query = `site:${template.site} ${query}`.trim();
+        }
+        if (query.length >= 3) queries.add(query);
       }
-      let query = renderTemplate(template.template, values);
-      if (template.site && !/site:/i.test(query)) {
-        query = `site:${template.site} ${query}`.trim();
-      }
-      if (query.length >= 3) queries.add(query);
     }
   }
   return [...queries];

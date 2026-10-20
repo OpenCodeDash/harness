@@ -39,8 +39,8 @@ Rules enforced at compile time:
   so pack changes cannot alter an old campaign.
 
 The pack now provides capabilities and suggestions: fields, image-feature templates,
-suggested criteria, derived evaluators, and query templates. The scorer reads
-`brief.criteria`; it does not look up a pack.
+suggested criteria, and derived evaluators. The scorer reads `brief.criteria`; it does not
+look up a pack. Query templates moved to source integrations later (ADR 0013).
 
 ## Consequences
 
