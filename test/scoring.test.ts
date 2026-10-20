@@ -222,3 +222,25 @@ test("tie bands are explicit", () => {
   assert.equal(isTie(0.8, 0.82), true);
   assert.equal(isTie(0.8, 0.84), false);
 });
+
+test("area matching uses suburb, address, district, and region", () => {
+  const brief = makeBrief({ hard: { areas: ["Wellington"] } });
+  const pass = scoreListing(
+    brief,
+    propertyPack,
+    facts(
+      fact("suburb", "Johnsonville"),
+      fact("district", "Wellington"),
+      fact("address", "1/1A Pollen Street"),
+    ),
+  );
+  assert.equal(pass.hardPass, true);
+
+  const fail = scoreListing(
+    brief,
+    propertyPack,
+    facts(fact("suburb", "Ponsonby"), fact("district", "Auckland")),
+  );
+  assert.equal(fail.hardPass, false);
+  assert.match(fail.hardFailures[0] ?? "", /outside areas/);
+});

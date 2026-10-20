@@ -164,7 +164,11 @@ export const trademeRecipe: Recipe = {
   version: 1,
   matches: (url) => {
     try {
-      return new URL(url).hostname.endsWith("trademe.co.nz");
+      const parsed = new URL(url);
+      return (
+        parsed.hostname.endsWith("trademe.co.nz") &&
+        /\/a\/property\/residential\/rent\//.test(parsed.pathname)
+      );
     } catch {
       return false;
     }
