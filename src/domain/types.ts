@@ -41,6 +41,7 @@ export interface DomainPack {
   fields: FieldDef[];
   imageFeatures: ImageFeatureDef[];
   defaultCriteria: Criterion[];
+  queryTemplates: string[];
 }
 
 export function findField(

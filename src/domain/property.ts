@@ -84,8 +84,7 @@ export const propertyPack: DomainPack = {
       aliases: ["mould", "mold", "damp", "water damage"],
     },
   ],
-  defaultCriteria: [
-    {
+  defaultCriteria: [    {
       key: "parking",
       label: "Parking",
       weight: 0.7,
@@ -133,5 +132,13 @@ export const propertyPack: DomainPack = {
       kind: "number",
       normalizer: { type: "range", min: 2, max: 3 },
     },
+  ],
+  queryTemplates: [
+    "{bedrooms} bedroom {property_type} for rent {area}",
+    "{bedrooms} bedroom house to rent {area}",
+    "rental {area} {rent}",
+    "site:trademe.co.nz {area} rent {bedrooms} bedroom",
+    "property manager rentals {area}",
+    "apartments to rent {area} {rent}",
   ],
 };
