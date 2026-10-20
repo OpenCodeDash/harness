@@ -1,19 +1,61 @@
 export type ValueKind = "boolean" | "number" | "enum" | "text";
 
 export type Normalizer =
-  | { type: "boolean" }
+  | { type: "boolean"; prefer?: boolean }
   | { type: "lower-is-better"; max: number }
   | { type: "higher-is-better"; max: number }
   | { type: "range"; min: number; max: number }
   | { type: "enum"; scores: Record<string, number> };
 
-export interface Criterion {
+export type CriterionKind = "boolean" | "number" | "enum";
+
+export type DerivedEvaluator =
+  | "commute"
+  | "price_per_bedroom"
+  | "price_per_bathroom";
+
+export const DERIVED_EVALUATORS: readonly DerivedEvaluator[] = [
+  "commute",
+  "price_per_bedroom",
+  "price_per_bathroom",
+];
+
+export type CriterionSource =
+  | { type: "field"; field: string }
+  | { type: "text"; prompt: string }
+  | { type: "image"; prompt: string; options?: string[] }
+  | {
+      type: "derived";
+      evaluator: DerivedEvaluator;
+      params?: Record<string, unknown>;
+    };
+
+export type HardPredicate =
+  | { op: "eq"; value: unknown }
+  | { op: "in"; values: unknown[] }
+  | { op: "lte"; value: number }
+  | { op: "gte"; value: number }
+  | { op: "range"; min?: number; max?: number };
+
+export interface CriterionSpec {
   key: string;
   label: string;
   weight: number;
-  kind: ValueKind;
+  kind: CriterionKind;
   normalizer: Normalizer;
+  source: CriterionSource;
+  origin: "explicit" | "suggested";
+  hard?: HardPredicate;
   unknown?: "flag" | "penalize";
+  rationale?: string;
+}
+
+export type Criterion = CriterionSpec;
+
+export function criterionFactKey(criterion: CriterionSpec): string {
+  return criterion.source.type === "field"
+    ? criterion.source.field
+    : criterion.key;
 }
 
 export interface FieldDef {
@@ -40,7 +82,7 @@ export interface DomainPack {
   label: string;
   fields: FieldDef[];
   imageFeatures: ImageFeatureDef[];
-  defaultCriteria: Criterion[];
+  defaultCriteria: CriterionSpec[];
   queryTemplates: string[];
 }
 

@@ -72,8 +72,11 @@ export function interpretFeedback(
   const summary: string[] = [];
   const setWeights: Record<string, number> = {};
 
-  for (const soft of brief.soft) {
-    const found = mention(text, termsForKey(pack, soft.key));
+  for (const criterion of brief.criteria) {
+    const found = mention(text, [
+      ...termsForKey(pack, criterion.key),
+      criterion.label.toLowerCase(),
+    ]);
     if (!found) continue;
     const window = found.window;
     let weight: number | null = null;
@@ -90,13 +93,13 @@ export function interpretFeedback(
     ) {
       weight = 1;
     } else if (/more important/.test(window)) {
-      weight = clamp01(soft.weight + 0.2);
+      weight = clamp01(criterion.weight + 0.2);
     } else if (/less important/.test(window)) {
-      weight = clamp01(soft.weight - 0.2);
+      weight = clamp01(criterion.weight - 0.2);
     }
     if (weight !== null) {
-      setWeights[soft.key] = weight;
-      summary.push(`${labelFor(pack, soft.key)} ${weight.toFixed(2)}`);
+      setWeights[criterion.key] = weight;
+      summary.push(`${criterion.label} ${weight.toFixed(2)}`);
     }
   }
 
@@ -248,6 +251,6 @@ export function applyFeedback(
   }
   return {
     ...interpretation,
-    brief: applyBriefDelta(brief, interpretation.delta),
+    brief: applyBriefDelta(brief, interpretation.delta, pack),
   };
 }

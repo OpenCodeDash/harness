@@ -1,6 +1,7 @@
 import type { Brief } from "../brief/types.ts";
 import type { Listing } from "../campaign/types.ts";
 import type { DomainPack } from "../domain/types.ts";
+import { criterionFactKey } from "../domain/types.ts";
 import type { Fact, ScoreResult } from "../scoring/score.ts";
 import { isTie } from "../scoring/score.ts";
 
@@ -92,11 +93,7 @@ export function buildExportTable(
   brief: Brief,
   pack: DomainPack,
 ): ExportTable {
-  const criteria = brief.soft
-    .map((soft) => pack.defaultCriteria.find((c) => c.key === soft.key))
-    .filter((criterion): criterion is NonNullable<typeof criterion> =>
-      Boolean(criterion),
-    );
+  const criteria = brief.criteria;
 
   const criterionColumns: ExportColumn[] = criteria.map((criterion) => ({
     key: `criterion:${criterion.key}`,
@@ -131,7 +128,7 @@ export function buildExportTable(
 
     for (const criterion of criteria) {
       row[`criterion:${criterion.key}`] = formatCell(
-        item.facts.get(criterion.key)?.value,
+        item.facts.get(criterionFactKey(criterion))?.value,
       );
     }
 

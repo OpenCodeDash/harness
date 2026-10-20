@@ -84,12 +84,15 @@ export const propertyPack: DomainPack = {
       aliases: ["mould", "mold", "damp", "water damage"],
     },
   ],
-  defaultCriteria: [    {
+  defaultCriteria: [
+    {
       key: "parking",
       label: "Parking",
       weight: 0.7,
       kind: "boolean",
       normalizer: { type: "boolean" },
+      source: { type: "field", field: "parking" },
+      origin: "suggested",
     },
     {
       key: "commute",
@@ -97,6 +100,8 @@ export const propertyPack: DomainPack = {
       weight: 0.8,
       kind: "number",
       normalizer: { type: "lower-is-better", max: 45 },
+      source: { type: "derived", evaluator: "commute" },
+      origin: "suggested",
     },
     {
       key: "sunlight",
@@ -107,6 +112,13 @@ export const propertyPack: DomainPack = {
         type: "enum",
         scores: { none: 0, low: 0.33, moderate: 0.66, high: 1 },
       },
+      source: {
+        type: "image",
+        prompt:
+          "Judge direct sunlight and window size visible in the photo. Answer none, low, moderate, or high. Do not infer time of day.",
+        options: ["none", "low", "moderate", "high"],
+      },
+      origin: "suggested",
     },
     {
       key: "heat_pump",
@@ -114,6 +126,12 @@ export const propertyPack: DomainPack = {
       weight: 0.5,
       kind: "boolean",
       normalizer: { type: "boolean" },
+      source: {
+        type: "image",
+        prompt:
+          "Is a heat pump or air-conditioning unit visible? Answer present, absent, or unknown.",
+      },
+      origin: "suggested",
     },
     {
       key: "condition",
@@ -124,6 +142,13 @@ export const propertyPack: DomainPack = {
         type: "enum",
         scores: { poor: 0, fair: 0.33, good: 0.66, renovated: 1 },
       },
+      source: {
+        type: "image",
+        prompt:
+          "Judge the visible condition of walls, floors, kitchen, and bathroom. Answer poor, fair, good, or renovated.",
+        options: ["poor", "fair", "good", "renovated"],
+      },
+      origin: "suggested",
     },
     {
       key: "bedrooms",
@@ -131,6 +156,8 @@ export const propertyPack: DomainPack = {
       weight: 0.3,
       kind: "number",
       normalizer: { type: "range", min: 2, max: 3 },
+      source: { type: "field", field: "bedrooms" },
+      origin: "suggested",
     },
   ],
   queryTemplates: [

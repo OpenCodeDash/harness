@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BUDGETS, type Brief } from "../src/brief/types.ts";
 import { propertyPack } from "../src/domain/property.ts";
+import type { CriterionSpec } from "../src/domain/types.ts";
 import {
   isTie,
   normalizeValue,
@@ -11,18 +12,42 @@ import {
   type Facts,
 } from "../src/scoring/score.ts";
 
-function makeBrief(partial: Partial<Brief> = {}): Brief {
+function criterionFor(key: string, weight: number): CriterionSpec {
+  const definition = propertyPack.defaultCriteria.find(
+    (candidate) => candidate.key === key,
+  );
+  if (definition) return { ...definition, weight, origin: "explicit" };
+  return {
+    key,
+    label: key,
+    weight,
+    kind: "boolean",
+    normalizer: { type: "boolean" },
+    source: { type: "text", prompt: `Does the listing have ${key}?` },
+    origin: "explicit",
+  };
+}
+
+function makeBrief(
+  partial: Omit<Partial<Brief>, "criteria"> & {
+    soft?: Array<{ key: string; weight: number }>;
+    criteria?: Brief["criteria"];
+  } = {},
+): Brief {
+  const { soft, criteria, ...rest } = partial;
   return {
     version: 1,
     domain: "property",
     prompt: "test",
     anchors: {},
     hard: {},
-    soft: [],
+    criteria:
+      criteria ?? (soft ?? []).map(({ key, weight }) => criterionFor(key, weight)),
     unknownPolicy: "flag",
     budgets: DEFAULT_BUDGETS,
     assumptions: [],
-    ...partial,
+    warnings: [],
+    ...rest,
   };
 }
 
@@ -199,7 +224,7 @@ test("user evidence outranks extracted evidence even when older", () => {
   assert.equal(factsMap.get("parking")?.value, true);
 });
 
-test("zero-weight criteria are ignored and unknown keys are noted", () => {
+test("zero-weight criteria are ignored and dynamic criteria are scored", () => {
   const brief = makeBrief({
     soft: [
       { key: "parking", weight: 0 },
@@ -207,7 +232,11 @@ test("zero-weight criteria are ignored and unknown keys are noted", () => {
       { key: "sunlight", weight: 1 },
     ],
   });
-  const result = scoreListing(brief, propertyPack, facts(fact("sunlight", "high")));
+  const result = scoreListing(
+    brief,
+    propertyPack,
+    facts(fact("sunlight", "high"), fact("mystery", true)),
+  );
 
   assert.equal(result.score, 1);
   assert.equal(result.coverage, 1);
@@ -215,7 +244,10 @@ test("zero-weight criteria are ignored and unknown keys are noted", () => {
     result.breakdown.find((b) => b.key === "parking")?.policy,
     "ignored",
   );
-  assert.ok(result.notes.some((note) => note.includes("mystery")));
+  assert.equal(
+    result.breakdown.find((b) => b.key === "mystery")?.known,
+    true,
+  );
 });
 
 test("tie bands are explicit", () => {
@@ -254,4 +286,52 @@ test("region alone does not satisfy a city area filter", () => {
   );
   assert.equal(result.hardPass, false);
   assert.match(result.hardFailures[0] ?? "", /outside areas/);
+});
+
+test("dynamic criteria read field sources, prefer false, and hard predicates", () => {
+  const brief = makeBrief({
+    criteria: [
+      {
+        key: "price",
+        label: "Price",
+        weight: 0.5,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 700 },
+        source: { type: "field", field: "rent" },
+        origin: "explicit",
+        hard: { op: "lte", value: 650 },
+      },
+      {
+        key: "damp",
+        label: "Damp",
+        weight: 0.5,
+        kind: "boolean",
+        normalizer: { type: "boolean", prefer: false },
+        source: { type: "image", prompt: "Any damp?" },
+        origin: "explicit",
+        hard: { op: "eq", value: false },
+      },
+    ],
+  });
+
+  const pass = scoreListing(
+    brief,
+    propertyPack,
+    facts(fact("rent", 600), fact("damp", false)),
+  );
+  assert.equal(pass.hardPass, true);
+  assert.equal(
+    pass.breakdown.find((item) => item.key === "damp")?.normalized,
+    1,
+  );
+  assert.ok((pass.breakdown.find((item) => item.key === "price")?.normalized ?? 0) < 0.2);
+
+  const fail = scoreListing(
+    brief,
+    propertyPack,
+    facts(fact("rent", 700), fact("damp", true)),
+  );
+  assert.equal(fail.hardPass, false);
+  assert.ok(fail.hardFailures.some((failure) => failure.includes("Price")));
+  assert.ok(fail.hardFailures.some((failure) => failure.includes("Damp")));
 });

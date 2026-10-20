@@ -1,5 +1,11 @@
 import type { Brief } from "../brief/types.ts";
-import type { Criterion, DomainPack, Normalizer } from "../domain/types.ts";
+import type {
+  CriterionSpec,
+  DomainPack,
+  HardPredicate,
+  Normalizer,
+} from "../domain/types.ts";
+import { criterionFactKey } from "../domain/types.ts";
 
 export interface Fact {
   key: string;
@@ -28,6 +34,8 @@ export interface CriterionBreakdown {
   normalized: number | null;
   contribution: number;
   policy: "flag" | "penalize" | "ignored";
+  origin: "explicit" | "suggested";
+  sourceType: string;
   reason?: string;
 }
 
@@ -105,7 +113,8 @@ export function normalizeValue(
   switch (normalizer.type) {
     case "boolean": {
       const parsed = toBoolean(value);
-      return parsed === null ? null : parsed ? 1 : 0;
+      if (parsed === null) return null;
+      return parsed === (normalizer.prefer ?? true) ? 1 : 0;
     }
     case "lower-is-better": {
       const parsed = toNumber(value);
@@ -143,6 +152,7 @@ export function scoreListing(
   facts: Facts,
   options: ScoreOptions = {},
 ): ScoreResult {
+  void pack;
   const minConfidence = options.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   const hardFailures = checkHardConstraints(brief, facts, minConfidence);
   const breakdown: CriterionBreakdown[] = [];
@@ -154,20 +164,15 @@ export function scoreListing(
   let coveredMass = 0;
   let totalMass = 0;
 
-  for (const soft of brief.soft) {
-    const criterion = pack.defaultCriteria.find((item) => item.key === soft.key);
-    if (!criterion) {
-      notes.push(`unknown criterion "${soft.key}" ignored`);
-      continue;
-    }
-    const weight = soft.weight;
+  for (const criterion of brief.criteria) {
+    const weight = criterion.weight;
     if (weight <= 0) {
       breakdown.push(ignored(criterion, weight));
       continue;
     }
 
     totalMass += weight;
-    const fact = facts.get(soft.key);
+    const fact = facts.get(criterionFactKey(criterion));
     const configured = criterion.unknown ?? brief.unknownPolicy;
     const policy = configured === "investigate" ? "flag" : configured;
     const lowConfidence =
@@ -191,6 +196,8 @@ export function scoreListing(
         normalized,
         contribution,
         policy,
+        origin: criterion.origin,
+        sourceType: criterion.source.type,
       });
       continue;
     }
@@ -211,6 +218,8 @@ export function scoreListing(
       normalized: null,
       contribution: 0,
       policy,
+      origin: criterion.origin,
+      sourceType: criterion.source.type,
       reason,
     });
     gaps.push({
@@ -233,7 +242,10 @@ export function scoreListing(
   };
 }
 
-function ignored(criterion: Criterion, weight: number): CriterionBreakdown {
+function ignored(
+  criterion: CriterionSpec,
+  weight: number,
+): CriterionBreakdown {
   return {
     key: criterion.key,
     label: criterion.label,
@@ -243,6 +255,8 @@ function ignored(criterion: Criterion, weight: number): CriterionBreakdown {
     normalized: null,
     contribution: 0,
     policy: "ignored",
+    origin: criterion.origin,
+    sourceType: criterion.source.type,
     reason: "weight is zero",
   };
 }
@@ -270,6 +284,30 @@ function matches(value: unknown, expected: unknown): boolean {
     String(value).trim().toLowerCase() ===
     String(expected).trim().toLowerCase()
   );
+}
+
+export function matchesHard(value: unknown, hard: HardPredicate): boolean {
+  switch (hard.op) {
+    case "eq":
+      return matches(value, hard.value);
+    case "in":
+      return hard.values.some((candidate) => matches(value, candidate));
+    case "lte": {
+      const number = toNumber(value);
+      return number !== null && number <= hard.value;
+    }
+    case "gte": {
+      const number = toNumber(value);
+      return number !== null && number >= hard.value;
+    }
+    case "range": {
+      const number = toNumber(value);
+      if (number === null) return false;
+      if (hard.min !== undefined && number < hard.min) return false;
+      if (hard.max !== undefined && number > hard.max) return false;
+      return true;
+    }
+  }
 }
 
 export function checkHardConstraints(
@@ -331,10 +369,30 @@ export function checkHardConstraints(
 
   const commute = brief.anchors.commute;
   if (commute?.hard) {
-    const minutes = numberFact(facts, "commute", minConfidence);
+    const commuteCriterion = brief.criteria.find(
+      (criterion) =>
+        criterion.source.type === "derived" &&
+        criterion.source.evaluator === "commute",
+    );
+    const commuteKey = commuteCriterion
+      ? criterionFactKey(commuteCriterion)
+      : "commute";
+    const minutes = numberFact(facts, commuteKey, minConfidence);
     if (minutes === null) failures.push("commute unknown");
     else if (minutes > commute.maxMinutes) {
       failures.push(`commute ${minutes} min > ${commute.maxMinutes}`);
+    }
+  }
+
+  for (const criterion of brief.criteria) {
+    if (!criterion.hard) continue;
+    const fact = facts.get(criterionFactKey(criterion));
+    if (!fact || fact.confidence < minConfidence) {
+      failures.push(`${criterion.label} unknown`);
+      continue;
+    }
+    if (!matchesHard(fact.value, criterion.hard)) {
+      failures.push(`${criterion.label} fails ${criterion.hard.op}`);
     }
   }
 

@@ -17,13 +17,22 @@ const BRIEF: Brief = {
   prompt: "test",
   anchors: {},
   hard: {},
-  soft: [
-    { key: "parking", weight: 0.5 },
-    { key: "sunlight", weight: 0.5 },
+  criteria: [
+    {
+      ...propertyPack.defaultCriteria.find((criterion) => criterion.key === "parking")!,
+      weight: 0.5,
+      origin: "explicit",
+    },
+    {
+      ...propertyPack.defaultCriteria.find((criterion) => criterion.key === "sunlight")!,
+      weight: 0.5,
+      origin: "explicit",
+    },
   ],
   unknownPolicy: "flag",
   budgets: DEFAULT_BUDGETS,
   assumptions: [],
+  warnings: [],
 };
 
 function listing(id: number, url: string): Listing {

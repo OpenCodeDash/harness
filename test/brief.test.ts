@@ -21,9 +21,27 @@ hard:
   rent_max: 650
   bedrooms: { min: 2, max: 3 }
   areas: [Wellington]
-soft:
-  - { key: parking, weight: 0.9 }
-  - { key: sunlight, weight: 0.6 }
+criteria:
+  - key: parking
+    label: Parking
+    weight: 0.9
+    kind: boolean
+    normalizer: { type: boolean }
+    source: { type: field, field: parking }
+    origin: explicit
+  - key: sunlight
+    label: Sunlight
+    weight: 0.6
+    kind: enum
+    normalizer:
+      type: enum
+      scores: { none: 0, low: 0.33, moderate: 0.66, high: 1 }
+    source:
+      type: image
+      prompt: "Judge direct sunlight visible in the photo."
+      options: [none, low, moderate, high]
+    origin: suggested
+    rationale: "Wellington rentals can be dark"
 unknown_policy: flag
 budgets:
   max_listings: 300
@@ -34,43 +52,95 @@ assumptions:
   - "near work means <=25 min drive"
 `;
 
-test("parses a brief and round-trips through YAML", () => {
+test("parses a criteria brief and round-trips through YAML", () => {
   const brief = parseBrief(YAML);
   assert.equal(brief.version, 2);
   assert.equal(brief.hard.rentMax, 650);
   assert.deepEqual(brief.hard.bedrooms, { min: 2, max: 3 });
   assert.equal(brief.anchors.commute?.maxMinutes, 25);
   assert.equal(brief.budgets.visionMax, 60);
+  assert.equal(brief.criteria.length, 2);
+  assert.equal(brief.criteria[0]?.key, "parking");
+  assert.equal(brief.criteria[1]?.origin, "suggested");
 
   const again = parseBrief(serializeBrief(brief));
   assert.deepEqual(again, brief);
 });
 
 test("invalid briefs fail loudly", () => {
-  assert.throws(() => parseBrief("soft: [{ key: parking, weight: 4 }]"));
+  assert.throws(() => parseBrief("criteria: [{ key: x, weight: 4 }]"));
 });
 
-test("compiler merges pack defaults, resolves aliases, and records assumptions", () => {
-  const raw = {
-    anchors: { commute: { max_minutes: 20, hard: true } },
+test("compiler uses only the criteria it is given, not pack defaults", () => {
+  const brief = briefFromExtraction("find a rental", propertyPack, {
     hard: { rent_max: 650, bedrooms: { min: 2, max: 3 } },
-    soft: [
-      { key: "carpark", weight: 0.95 },
-      { key: "nonsense", weight: 0.5 },
+    criteria: [
+      {
+        key: "parking",
+        label: "Parking",
+        weight: 0.95,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "carpark" },
+        origin: "explicit",
+      },
+      {
+        key: "damp",
+        label: "Damp",
+        weight: 0.4,
+        kind: "boolean",
+        normalizer: { type: "boolean", prefer: false },
+        source: { type: "image", prompt: "Any visible damp or mould?" },
+        origin: "suggested",
+        rationale: "common in older rentals",
+      },
+      {
+        key: "bogus",
+        label: "Bogus",
+        weight: 0.5,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "nope" },
+        origin: "suggested",
+      },
     ],
-  };
-  const brief = briefFromExtraction("find a rental", propertyPack, raw);
+  });
 
-  const weights = Object.fromEntries(
-    brief.soft.map((criterion) => [criterion.key, criterion.weight]),
+  assert.deepEqual(
+    brief.criteria.map((criterion) => criterion.key),
+    ["parking", "damp"],
   );
-  assert.equal(weights.parking, 0.95);
-  assert.equal(weights.commute, 0.8);
-  assert.equal(weights.sunlight, 0.6);
-  assert.equal(weights.nonsense, undefined);
-  assert.equal(brief.domain, "property");
-  assert.ok(brief.assumptions.some((a) => a.includes("<=20 min drive")));
-  assert.ok(brief.assumptions.some((a) => a.includes("sunlight is inferred")));
+  assert.equal(brief.criteria[0]?.source.type, "field");
+  assert.equal(
+    brief.criteria[0]?.source.type === "field"
+      ? brief.criteria[0].source.field
+      : null,
+    "parking",
+  );
+  assert.equal(brief.criteria[1]?.origin, "suggested");
+  assert.equal(
+    brief.criteria[1]?.normalizer.type === "boolean"
+      ? brief.criteria[1].normalizer.prefer
+      : null,
+    false,
+  );
+  assert.ok(brief.warnings.some((warning) => warning.includes("nope")));
+  assert.ok(!brief.criteria.some((criterion) => criterion.key === "sunlight"));
+  assert.ok(brief.assumptions.some((a) => a.includes("image criteria")));
+});
+
+test("sparse extraction falls back to pack suggestions", () => {
+  const brief = briefFromExtraction("find a rental", propertyPack, {});
+  assert.ok(brief.criteria.length > 0);
+  assert.ok(brief.criteria.every((criterion) => criterion.origin === "suggested"));
+  assert.ok(
+    !brief.criteria.some(
+      (criterion) =>
+        criterion.source.type === "derived" &&
+        criterion.source.evaluator === "commute",
+    ),
+  );
+  assert.ok(brief.warnings.some((warning) => warning.includes("fallback")));
 });
 
 test("compileBrief uses the injected extractor", async () => {
@@ -82,22 +152,37 @@ test("compileBrief uses the injected extractor", async () => {
   const { compileBrief } = await import("../src/brief/brief.ts");
   const brief = await compileBrief("cheap rental", propertyPack, extractor);
   assert.equal(brief.hard.rentMax, 500);
-  assert.equal(brief.soft.length, propertyPack.defaultCriteria.length - 1);
+  assert.equal(brief.criteria.length, propertyPack.defaultCriteria.length - 1);
   assert.equal(
-    brief.soft.some((criterion) => criterion.key === "commute"),
+    brief.criteria.some(
+      (criterion) =>
+        criterion.source.type === "derived" &&
+        criterion.source.evaluator === "commute",
+    ),
     false,
   );
 });
 
-test("echoBrief states hard limits, weights, commute, and assumptions", () => {
+test("echoBrief states hard limits, criteria, commute, and assumptions", () => {
   const brief = briefFromExtraction("find a rental", propertyPack, {
     anchors: { commute: { max_minutes: 20, hard: true } },
     hard: { rent_max: 650, bedrooms: { min: 2, max: 3 } },
-    soft: [{ key: "carpark", weight: 0.95 }],
+    criteria: [
+      {
+        key: "parking",
+        label: "Parking",
+        weight: 0.95,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "parking" },
+        origin: "explicit",
+        hard: { op: "eq", value: true },
+      },
+    ],
   });
   const echo = echoBrief(brief);
   assert.match(echo, /Hard: rent <= 650 · beds 2-3/);
-  assert.match(echo, /parking 0\.95/);
+  assert.match(echo, /Parking 0\.95 \[field:parking\] · hard true/);
   assert.match(echo, /Commute: drive <= 20 min \(hard\)/);
   assert.match(echo, /Assumed: "near work" means <=20 min drive/);
 });
@@ -115,7 +200,7 @@ test("applyBriefDelta re-weights, widens areas, and bumps the version", () => {
 
   assert.equal(next.version, brief.version + 1);
   assert.deepEqual(
-    Object.fromEntries(next.soft.map((c) => [c.key, c.weight])),
+    Object.fromEntries(next.criteria.map((c) => [c.key, c.weight])),
     { parking: 1, sunlight: 0 },
   );
   assert.equal(next.anchors.commute?.maxMinutes, 15);
@@ -125,5 +210,51 @@ test("applyBriefDelta re-weights, widens areas, and bumps the version", () => {
   assert.ok(!next.assumptions.includes("near work means <=25 min drive"));
 
   assert.equal(brief.anchors.commute?.maxMinutes, 25);
-  assert.equal(brief.soft.find((c) => c.key === "sunlight")?.weight, 0.6);
+  assert.equal(
+    brief.criteria.find((c) => c.key === "sunlight")?.weight,
+    0.6,
+  );
+});
+
+test("applyBriefDelta can add and remove dynamic criteria", () => {
+  const brief = parseBrief(YAML);
+  const next = applyBriefDelta(
+    brief,
+    {
+      action: "re-extract",
+      addCriteria: [
+        {
+          key: "mould",
+          label: "Mould",
+          weight: 0.5,
+          kind: "boolean",
+          normalizer: { type: "boolean", prefer: false },
+          source: { type: "image", prompt: "Any visible mould?" },
+          origin: "explicit",
+        },
+      ],
+      removeCriteria: ["sunlight"],
+    },
+    propertyPack,
+  );
+
+  assert.ok(next.criteria.some((criterion) => criterion.key === "mould"));
+  assert.ok(!next.criteria.some((criterion) => criterion.key === "sunlight"));
+});
+
+test("legacy soft briefs migrate to full criteria", () => {
+  const brief = parseBrief(
+    `
+hard: { rent_max: 650 }
+soft:
+  - { key: parking, weight: 0.8 }
+  - { key: carpark, weight: 0.9 }
+`,
+    propertyPack,
+  );
+  assert.equal(brief.criteria.length, 1);
+  assert.equal(brief.criteria[0]?.key, "parking");
+  assert.equal(brief.criteria[0]?.weight, 0.9);
+  assert.equal(brief.criteria[0]?.origin, "explicit");
+  assert.equal(brief.criteria[0]?.source.type, "field");
 });

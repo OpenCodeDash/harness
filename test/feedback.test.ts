@@ -27,8 +27,8 @@ test("re-score: weights move in both directions", () => {
   );
 
   assert.equal(result.delta.action, "re-score");
-  assert.equal(result.brief.soft.find((c) => c.key === "sunlight")?.weight, 0);
-  assert.equal(result.brief.soft.find((c) => c.key === "parking")?.weight, 1);
+  assert.equal(result.brief.criteria.find((c) => c.key === "sunlight")?.weight, 0);
+  assert.equal(result.brief.criteria.find((c) => c.key === "parking")?.weight, 1);
   assert.match(result.summary, /Sunlight 0\.00/);
   assert.match(result.summary, /Parking 1\.00/);
   assert.equal(result.brief.version, brief.version + 1);
