@@ -1,7 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 import type { DomainPack } from "../domain/types.ts";
-import { findField, findImageFeature } from "../domain/types.ts";
 import {
   DEFAULT_BUDGETS,
   type Brief,
@@ -150,11 +149,26 @@ export interface BriefExtractor {
 }
 
 export function resolveKey(pack: DomainPack, key: string): string | null {
-  const direct =
-    findField(pack, key) ?? findImageFeature(pack, key) ??
-    pack.fields.find((field) => (field.aliases ?? []).includes(key)) ??
-    pack.imageFeatures.find((feature) => (feature.aliases ?? []).includes(key));
-  return direct?.key ?? null;
+  const items = [...pack.fields, ...pack.imageFeatures];
+  const normalise = (value: string) => value.trim().toLowerCase();
+  const matches = (candidate: string, item: (typeof items)[number]) => {
+    const value = normalise(candidate);
+    return (
+      item.key.toLowerCase() === value ||
+      item.key.toLowerCase() === value.replace(/\s+/g, "_") ||
+      item.label.toLowerCase() === value ||
+      (item.aliases ?? []).some((alias) => alias.toLowerCase() === value)
+    );
+  };
+
+  const direct = items.find((item) => matches(key, item));
+  if (direct) return direct.key;
+
+  for (const part of key.split(/\s+and\s+|,/)) {
+    const found = items.find((item) => matches(part, item));
+    if (found) return found.key;
+  }
+  return null;
 }
 
 export function briefFromExtraction(

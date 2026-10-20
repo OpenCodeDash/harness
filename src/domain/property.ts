@@ -81,6 +81,7 @@ export const propertyPack: DomainPack = {
       label: "Damp signs",
       prompt: "Are there visible signs of damp, mould, or water damage?",
       kind: "boolean",
+      aliases: ["mould", "mold", "damp", "water damage"],
     },
   ],
   defaultCriteria: [
