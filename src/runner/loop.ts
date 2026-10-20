@@ -6,10 +6,10 @@ import type { CampaignStore } from "../campaign/store.ts";
 import type { DomainPack, ImageFeatureDef } from "../domain/types.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
 import type { SearchProvider } from "../discovery/searxng.ts";
-import { buildExportTable, tableToCsv } from "../export/csv.ts";
 import type { CachedGeoService } from "../geo/service.ts";
 import type { GeoPoint } from "../geo/types.ts";
 import { selectFacts, scoreListing } from "../scoring/score.ts";
+import { persistScores, scoreCampaign } from "./score.ts";
 import {
   getRecipeFor,
   runListing,
@@ -233,35 +233,14 @@ export async function runCampaign(
     });
   }
 
-  const items = store.listListings().map((listing) => {
-    const facts = selectFacts(store.listEvidence(listing.id));
-    return { listing, facts, result: scoreListing(brief, pack, facts) };
-  });
-
-  for (const item of items) {
-    store.saveScore({
-      listingId: item.listing.id,
-      briefVersionId,
-      score: item.result.score,
-      coverage: item.result.coverage,
-      hardPass: item.result.hardPass,
-      breakdown: {
-        breakdown: item.result.breakdown,
-        gaps: item.result.gaps,
-        questions: item.result.questions,
-        hardFailures: item.result.hardFailures,
-        notes: item.result.notes,
-      },
-    });
-  }
-
-  const csv = tableToCsv(buildExportTable(items, brief, pack));
+  const scored = scoreCampaign(store, brief, pack);
+  persistScores(store, briefVersionId, scored.items);
+  const csv = scored.csv;
   if (deps.exportPath) {
     await mkdir(dirname(deps.exportPath), { recursive: true });
     await writeFile(deps.exportPath, csv, "utf8");
   }
 
-  const hardPass = items.filter((item) => item.result.hardPass).length;
   store.finishRun(run.id, stopReason, spend);
 
   return {
@@ -269,9 +248,9 @@ export async function runCampaign(
     stopReason,
     discovered,
     collected,
-    hardPass,
-    shortlisted: Math.min(hardPass, 10),
-    withGaps: items.filter((item) => item.result.gaps.length > 0).length,
+    hardPass: scored.hardPass,
+    shortlisted: Math.min(scored.hardPass, 10),
+    withGaps: scored.withGaps,
     spendUsd: spend,
     csv,
     errors,
