@@ -22,12 +22,14 @@ export function findChrome(): string {
 }
 
 export function defaultBrowserConfig(): BrowserConfig {
+  const headless = process.env.HARNESS_HEADLESS !== "0";
   return {
     command: process.env.HARNESS_BROWSER_COMMAND ?? "npx",
     args: [
       "-y",
       "chrome-devtools-mcp@latest",
       `--executablePath=${findChrome()}`,
+      ...(headless ? ["--headless"] : []),
       "--isolated",
       "--no-usage-statistics",
     ],
