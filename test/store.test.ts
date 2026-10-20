@@ -190,3 +190,11 @@ test("data survives closing and reopening a file", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("latestRun returns the newest run", () => {
+  const s = store();
+  const first = s.startRun();
+  s.finishRun(first.id, "paused");
+  const second = s.startRun();
+  assert.equal(s.latestRun()?.id, second.id);
+});

@@ -62,6 +62,8 @@ export interface CreateCampaignInput {
   name?: string;
 }
 
+export interface PublicSummary extends Omit<CampaignSummary, "csv"> {}
+
 export interface CampaignStatus {
   id: string;
   name: string;
@@ -73,7 +75,7 @@ export interface CampaignStatus {
   stopped: boolean;
   running: boolean;
   runId: number | null;
-  lastSummary: CampaignSummary | null;
+  lastSummary: PublicSummary | null;
   createdAt: string;
 }
 
@@ -100,6 +102,16 @@ const slug = (value: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || "campaign";
 
+function countSeeds(cursor: string | null): number {
+  if (!cursor) return 0;
+  try {
+    const parsed = JSON.parse(cursor) as { seeds?: unknown };
+    return Array.isArray(parsed.seeds) ? parsed.seeds.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export class CampaignManager {
   private readonly registry: CampaignRegistry;
   private readonly runtimes = new Map<string, CampaignRuntime>();
@@ -121,16 +133,35 @@ export class CampaignManager {
         const store = CampaignStore.open(join(record.dir, "campaign.db"));
         const latest = store.latestBrief();
         if (!latest) throw new Error("campaign has no brief");
+        const brief = parseBrief(latest.yaml);
+        const pack = getPack(record.pack);
         const runtime: CampaignRuntime = {
           record,
-          pack: getPack(record.pack),
+          pack,
           store,
-          brief: parseBrief(latest.yaml),
+          brief,
           paused: false,
           stopped: false,
           running: false,
           events: new EventEmitter(),
         };
+        const run = store.latestRun();
+        if (run) {
+          const scored = scoreCampaign(store, brief, pack);
+          runtime.runId = run.id;
+          runtime.lastSummary = {
+            runId: run.id,
+            stopReason: run.stopReason ?? "idle",
+            discovered: countSeeds(run.cursor),
+            collected: store.listListings().length,
+            hardPass: scored.hardPass,
+            shortlisted: Math.min(scored.hardPass, 10),
+            withGaps: scored.withGaps,
+            spendUsd: run.spendUsd,
+            csv: scored.csv,
+            errors: [],
+          };
+        }
         runtime.events.setMaxListeners(0);
         this.runtimes.set(record.id, runtime);
       } catch (error) {
@@ -152,6 +183,12 @@ export class CampaignManager {
   }
 
   status(runtime: CampaignRuntime): CampaignStatus {
+    let lastSummary: PublicSummary | null = null;
+    if (runtime.lastSummary) {
+      const { csv: _csv, ...rest } = runtime.lastSummary;
+      lastSummary = rest;
+    }
+
     return {
       id: runtime.record.id,
       name: runtime.record.name,
@@ -169,7 +206,7 @@ export class CampaignManager {
       stopped: runtime.stopped,
       running: runtime.running,
       runId: runtime.runId ?? null,
-      lastSummary: runtime.lastSummary ?? null,
+      lastSummary,
       createdAt: runtime.record.createdAt,
     };
   }
@@ -278,6 +315,15 @@ export class CampaignManager {
     const scored = scoreCampaign(runtime.store, runtime.brief, runtime.pack);
     persistScores(runtime.store, version.id, scored.items);
     runtime.store.markFeedbackApplied(feedback.id);
+    if (runtime.lastSummary) {
+      runtime.lastSummary = {
+        ...runtime.lastSummary,
+        collected: runtime.store.listListings().length,
+        hardPass: scored.hardPass,
+        shortlisted: Math.min(scored.hardPass, 10),
+        withGaps: scored.withGaps,
+      };
+    }
 
     if (applied.delta.action === "re-search" && !runtime.running) {
       this.enqueue(runtime);

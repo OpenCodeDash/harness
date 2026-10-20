@@ -138,6 +138,10 @@ test("manager reloads campaigns and briefs from disk", async () => {
     assert.ok(loaded);
     assert.equal(manager.results(id).counts.listings, 2);
     assert.equal(loaded?.brief.hard.rentMax, 650);
+    assert.equal(loaded?.runId, 1);
+    assert.equal(loaded?.lastSummary?.stopReason, "complete");
+    assert.equal(loaded?.lastSummary?.discovered, 1);
+    assert.equal(loaded?.lastSummary?.collected, 2);
   } finally {
     manager.close();
     rmSync(root, { recursive: true, force: true });

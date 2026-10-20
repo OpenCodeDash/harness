@@ -415,6 +415,13 @@ export class CampaignStore {
     };
   }
 
+  latestRun(): Run | null {
+    const row = this.db
+      .prepare("SELECT id FROM run ORDER BY id DESC LIMIT 1")
+      .get() as Row | undefined;
+    return row ? this.getRun(Number(row.id)) : null;
+  }
+
   checkpointRun(id: number, cursor: string, spendUsd?: number): void {
     if (spendUsd === undefined) {
       this.db.prepare("UPDATE run SET cursor = ? WHERE id = ?").run(cursor, id);
