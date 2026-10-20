@@ -1,10 +1,24 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { existsSync } from "node:fs";
 
 export interface BrowserConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
+}
+
+const CHROME_CANDIDATES = [
+  "/run/current-system/sw/bin/chromium",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/google-chrome",
+];
+
+export function findChrome(): string {
+  const configured = process.env.CHROME_PATH ?? process.env.CHROME_BIN;
+  if (configured) return configured;
+  return CHROME_CANDIDATES.find((path) => existsSync(path)) ?? "chromium";
 }
 
 export function defaultBrowserConfig(): BrowserConfig {
@@ -13,7 +27,7 @@ export function defaultBrowserConfig(): BrowserConfig {
     args: [
       "-y",
       "chrome-devtools-mcp@latest",
-      `--executablePath=${process.env.CHROME_PATH ?? "chromium"}`,
+      `--executablePath=${findChrome()}`,
       "--isolated",
       "--no-usage-statistics",
     ],
