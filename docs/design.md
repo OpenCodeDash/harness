@@ -161,9 +161,10 @@ warnings: []
 
 Rules:
 
-- `source` is one of `field`, `text`, `image`, or `derived`. `field` is limited to the pack's
-  structured fields; derived evaluators are `commute`, `price_per_bedroom`, and
-  `price_per_bathroom`; text and image prompts are extraction instructions for the model.
+- `source` is one of `field`, `text`, `image`, or `derived`. `field` is limited to the
+  canonical generic vocabulary plus the pack's structured fields; derived evaluators are
+  `commute`, `price_per_bedroom`, and `price_per_bathroom`; text and image prompts are
+  extraction instructions for the model.
 - Normalizers encode preference: `boolean prefer: false` makes a bad thing (damp, mould)
   score well when absent.
 - Explicit criteria come from the user. Suggested criteria are marked, lower-weighted by
@@ -385,26 +386,27 @@ Stopping is explicit, never "looks good enough":
 
 ## 17. Domain packs
 
-The core is listing-agnostic. A pack provides capabilities and defaults, not the active
-criteria set:
+The core is listing-agnostic. Packs are optional presets; the harness always has a generic
+canonical vocabulary for JSON-LD-shaped listings. A pack adds capabilities and defaults, not
+the active criteria set:
 
-- field schema (what recipes can extract)
+- extra field schema and aliases (the generic fields always apply)
 - image-feature templates and suggested criteria
 - derived evaluators
 - source recipes
 
-Discovery query templates live on source integrations, not packs (ADR 0013).
+Discovery query templates live on source integrations, not packs (ADR 0013). An unknown or
+omitted pack resolves to the generic preset (ADR 0015).
 
 The brief owns `criteria`; adding a criterion does not require changing the pack. Adding a
 pack must not require changes to the runner, scorer, store, or feedback protocol.
 
 | Pack | Status |
 | --- | --- |
+| generic | v1 (fallback vocabulary) |
 | property | v1 |
 | cars | v1 |
 | laptops | v1 |
-
-Adding a pack must not require changes to the runner, scorer, store, or feedback protocol.
 
 ## 18. Milestones
 

@@ -140,8 +140,8 @@ export class CampaignManager {
         const store = CampaignStore.open(join(record.dir, "campaign.db"));
         const latest = store.latestBrief();
         if (!latest) throw new Error("campaign has no brief");
-        const brief = parseBrief(latest.yaml);
         const pack = getPack(record.pack);
+        const brief = parseBrief(latest.yaml, pack);
         const runtime: CampaignRuntime = {
           record,
           pack,

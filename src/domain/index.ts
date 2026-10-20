@@ -1,18 +1,18 @@
 import { carsPack } from "./cars.ts";
+import { genericPack } from "./generic.ts";
 import { laptopsPack } from "./laptops.ts";
 import { propertyPack } from "./property.ts";
 import type { DomainPack } from "./types.ts";
 
-const packs: DomainPack[] = [propertyPack, carsPack, laptopsPack];
+const packs: DomainPack[] = [genericPack, propertyPack, carsPack, laptopsPack];
 
-export function getPack(id: string): DomainPack {
-  const pack = packs.find((candidate) => candidate.id === id);
-  if (!pack) {
-    throw new Error(
-      `Unknown domain pack "${id}". Available: ${packs.map((p) => p.id).join(", ")}`,
-    );
-  }
-  return pack;
+export function findPack(id: string): DomainPack | undefined {
+  return packs.find((candidate) => candidate.id === id);
+}
+
+/** Resolve a pack preset; unknown ids fall back to the generic vocabulary. */
+export function getPack(id?: string): DomainPack {
+  return findPack(id ?? genericPack.id) ?? genericPack;
 }
 
 export function listPacks(): DomainPack[] {

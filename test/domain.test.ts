@@ -1,19 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getPack, listPacks } from "../src/domain/index.ts";
+import { findPack, getPack, listPacks } from "../src/domain/index.ts";
+import { genericPack } from "../src/domain/generic.ts";
 import { propertyPack } from "../src/domain/property.ts";
 import { findField, findImageFeature } from "../src/domain/types.ts";
 
 test("packs are available and discoverable", () => {
   assert.equal(getPack("property"), propertyPack);
+  assert.equal(getPack("generic"), genericPack);
   assert.deepEqual(
     listPacks().map((pack) => pack.id),
-    ["property", "cars", "laptops"],
+    ["generic", "property", "cars", "laptops"],
   );
+  assert.equal(findPack("property"), propertyPack);
 });
 
-test("unknown packs fail loudly", () => {
-  assert.throws(() => getPack("spaceships"), /Unknown domain pack/);
+test("unknown packs fall back to the generic vocabulary", () => {
+  assert.equal(findPack("spaceships"), undefined);
+  assert.equal(getPack("spaceships"), genericPack);
+  assert.equal(getPack(), genericPack);
 });
 
 test("every default criterion points at a pack capability", () => {

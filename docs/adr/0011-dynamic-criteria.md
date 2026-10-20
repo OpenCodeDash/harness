@@ -40,7 +40,8 @@ Rules enforced at compile time:
 
 The pack now provides capabilities and suggestions: fields, image-feature templates,
 suggested criteria, and derived evaluators. The scorer reads `brief.criteria`; it does not
-look up a pack. Query templates moved to source integrations later (ADR 0013).
+look up a pack. Query templates moved to source integrations later (ADR 0013), and packs
+became optional presets with a generic fallback (ADR 0015).
 
 ## Consequences
 
