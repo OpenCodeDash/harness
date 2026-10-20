@@ -54,6 +54,24 @@ export type RunnerEvent =
       spendUsd: number;
     }
   | {
+      type: "progress";
+      stage: "discover" | "collect" | "vision";
+      current: number;
+      total: number;
+      message: string;
+      discovered: number;
+      collected: number;
+      spendUsd: number;
+    }
+  | {
+      type: "log";
+      level: "info" | "error";
+      message: string;
+      discovered: number;
+      collected: number;
+      spendUsd: number;
+    }
+  | {
       type: "run.finished";
       runId: number;
       stopReason: string;
@@ -155,8 +173,34 @@ export async function runCampaign(
 
   let seeds: string[] = progress?.seeds ?? [];
   let discovered = seeds.length;
+  let collected = 0;
+
+  const log = (level: "info" | "error", message: string) => {
+    emit({
+      type: "log",
+      level,
+      message,
+      discovered,
+      collected,
+      spendUsd: spend,
+    });
+  };
+
   if (!progress) {
-    const found = await discover(deps, brief, pack, errors);
+    const found = await discover(deps, brief, pack, errors, {
+      progress: (current, total, message) =>
+        emit({
+          type: "progress",
+          stage: "discover",
+          current,
+          total,
+          message,
+          discovered,
+          collected,
+          spendUsd: spend,
+        }),
+      log,
+    });
     seeds = found;
     discovered = seeds.length;
     checkpoint({ stage: "collect", seeds, index: 0 });
@@ -167,10 +211,10 @@ export async function runCampaign(
       collected: 0,
       spendUsd: spend,
     });
+    log("info", `discovered ${discovered} seed pages`);
   }
 
   let stopReason: "complete" | "paused" | "budget" | "stopped" = "complete";
-  let collected = 0;
   let detailCount = 0;
 
   if (!progress || progress.stage === "collect") {
@@ -195,10 +239,23 @@ export async function runCampaign(
         break;
       }
 
+      emit({
+        type: "progress",
+        stage: "collect",
+        current: index + 1,
+        total: seeds.length,
+        message: `page ${index + 1}/${seeds.length}`,
+        discovered,
+        collected,
+        spendUsd: spend,
+      });
+
       const url = seeds[index]!;
       const recipe = getRecipeFor(url);
       if (!recipe) {
-        errors.push(`no recipe for ${url}`);
+        const message = `no recipe for ${url}`;
+        errors.push(message);
+        log("error", message);
         continue;
       }
 
@@ -239,14 +296,18 @@ export async function runCampaign(
               ingest(store, pack, recipe, detail, observe);
               detailCount += 1;
             } catch (error) {
-              errors.push(`detail ${item.url}: ${message(error)}`);
+              const text = `detail ${item.url}: ${message(error)}`;
+              errors.push(text);
+              log("error", text);
             } finally {
               await detailPage?.close();
             }
           }
         }
       } catch (error) {
-        errors.push(`collect ${url}: ${message(error)}`);
+        const text = `collect ${url}: ${message(error)}`;
+        errors.push(text);
+        log("error", text);
       } finally {
         await page?.close();
       }
@@ -264,10 +325,11 @@ export async function runCampaign(
       collected,
       spendUsd: spend,
     });
+    log("info", `collected ${collected} listings from ${seeds.length} seed pages`);
   }
 
   if (stopReason === "complete") {
-    await addCommutes(deps, brief, errors);
+    await addCommutes(deps, brief, errors, log);
     await addVision(deps, brief, pack, progress, checkpoint, errors, {
       spend,
       photosPerListing,
@@ -279,6 +341,18 @@ export async function runCampaign(
       stop: (reason: "paused" | "budget" | "stopped") => {
         stopReason = reason;
       },
+      progress: (current, total, message) =>
+        emit({
+          type: "progress",
+          stage: "vision",
+          current,
+          total,
+          message,
+          discovered,
+          collected,
+          spendUsd: spend,
+        }),
+      log,
     });
     emit({
       type: "stage",
@@ -340,12 +414,17 @@ async function discover(
   brief: Brief,
   pack: DomainPack,
   errors: string[],
+  report: {
+    progress: (current: number, total: number, message: string) => void;
+    log: (level: "info" | "error", message: string) => void;
+  },
 ): Promise<string[]> {
   const queries = buildDiscoveryQueries(brief, pack);
   const seeds = new Set<string>();
 
-  for (const query of queries) {
+  for (const [index, query] of queries.entries()) {
     if (seeds.size >= brief.budgets.maxListings) break;
+    report.progress(index + 1, queries.length, `searching: ${query}`);
     try {
       const results = await deps.search.search(query, { limit: 10 });
       for (const result of results) {
@@ -354,7 +433,9 @@ async function discover(
         if (seeds.size >= brief.budgets.maxListings) break;
       }
     } catch (error) {
-      errors.push(`search "${query}": ${message(error)}`);
+      const text = `search "${query}": ${message(error)}`;
+      errors.push(text);
+      report.log("error", text);
     }
   }
   return [...seeds];
@@ -424,8 +505,12 @@ async function addCommutes(
   deps: RunnerDeps,
   brief: Brief,
   errors: string[],
+  log: (level: "info" | "error", message: string) => void,
 ): Promise<void> {
-  if (!deps.geo || !brief.anchors.work) return;
+  if (!deps.geo || !brief.anchors.work) {
+    log("info", "commute scoring skipped (no geo provider or work anchor)");
+    return;
+  }
 
   let work: GeoPoint | null = null;
   try {
@@ -438,14 +523,19 @@ async function addCommutes(
       work = await deps.geo.geocode(brief.anchors.work.address);
     }
   } catch (error) {
-    errors.push(`geocode work: ${message(error)}`);
+    const text = `geocode work: ${message(error)}`;
+    errors.push(text);
+    log("error", text);
     return;
   }
   if (!work) {
-    errors.push("work anchor could not be geocoded");
+    const text = "work anchor could not be geocoded";
+    errors.push(text);
+    log("error", text);
     return;
   }
 
+  log("info", "adding commute scores");
   for (const listing of deps.store.listListings()) {
     const facts = selectFacts(deps.store.listEvidence(listing.id));
     const address = facts.get("address")?.value;
@@ -462,9 +552,12 @@ async function addCommutes(
         confidence: 0.9,
       });
     } catch (error) {
-      errors.push(`commute ${listing.id}: ${message(error)}`);
+      const text = `commute ${listing.id}: ${message(error)}`;
+      errors.push(text);
+      log("error", text);
     }
   }
+  log("info", "commute pass complete");
 }
 
 async function addVision(
@@ -481,9 +574,14 @@ async function addVision(
     stopped: () => boolean;
     setSpend: (value: number) => void;
     stop: (reason: "paused" | "budget" | "stopped") => void;
+    progress: (current: number, total: number, message: string) => void;
+    log: (level: "info" | "error", message: string) => void;
   },
 ): Promise<void> {
-  if (!deps.vision) return;
+  if (!deps.vision) {
+    state.log("info", "vision disabled");
+    return;
+  }
 
   const candidates = deps.store
     .listListings()
@@ -506,6 +604,12 @@ async function addVision(
     ((url) => cacheImage({ url, dir: deps.mediaDir ?? "media" }));
   const costPerCall = deps.costPerVisionCallUsd ?? 0.01;
 
+  if (candidates.length === 0) {
+    state.log("info", "no vision candidates");
+    return;
+  }
+  state.log("info", `vision pass over ${candidates.length} listings`);
+
   for (let index = start; index < candidates.length; index += 1) {
     if (state.stopped()) {
       checkpoint({ stage: "vision", seeds, index });
@@ -521,6 +625,12 @@ async function addVision(
       state.stop("budget");
       return;
     }
+
+    state.progress(
+      index + 1,
+      candidates.length,
+      `image pass ${index + 1}/${candidates.length}`,
+    );
 
     const candidate = candidates[index]!;
     const media = candidate.facts.get("media_urls")?.value;
@@ -553,10 +663,13 @@ async function addVision(
         }
         state.setSpend(state.spend + costPerCall);
       } catch (error) {
-        errors.push(`vision ${candidate.listing.id}: ${message(error)}`);
+        const text = `vision ${candidate.listing.id}: ${message(error)}`;
+        errors.push(text);
+        state.log("error", text);
       }
     }
 
     checkpoint({ stage: "vision", seeds, index: index + 1 });
   }
+  state.log("info", "vision pass complete");
 }

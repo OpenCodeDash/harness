@@ -7,6 +7,7 @@ import { propertyPack } from "../src/domain/property.ts";
 import {
   runCampaign,
   type BrowserProvider,
+  type RunnerEvent,
   type RunnerPage,
 } from "../src/runner/loop.ts";
 import { extractDescriptionFacts } from "../src/runner/text.ts";
@@ -319,6 +320,48 @@ test("detail visits do not run past the listing budget", async () => {
     assert.equal(summary.collected, 1);
     assert.equal(store.listListings().length, 1);
     assert.equal(browser.calls.filter((url) => url === LISTING_1).length, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("emits progress and log events for monitoring", async () => {
+  const store = CampaignStore.open(":memory:");
+  const browser = new FakeBrowser((url) => {
+    if (url === SEARCH_URL) return [item("1", LISTING_1, 600)];
+    throw new Error("blocked");
+  });
+  const events: RunnerEvent[] = [];
+  try {
+    await runCampaign(
+      {
+        store,
+        browser,
+        search: new FakeSearch([SEARCH_URL]),
+        visitDetails: true,
+        detailLimit: 1,
+        onEvent: (event) => events.push(event),
+      },
+      { brief: makeBrief(), pack: propertyPack },
+    );
+
+    assert.ok(
+      events.some((event) => event.type === "progress" && event.stage === "discover"),
+    );
+    assert.ok(
+      events.some((event) => event.type === "progress" && event.stage === "collect"),
+    );
+    assert.ok(
+      events.some((event) => event.type === "log" && event.level === "info"),
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "log" &&
+          event.level === "error" &&
+          event.message.includes("blocked"),
+      ),
+    );
   } finally {
     store.close();
   }
