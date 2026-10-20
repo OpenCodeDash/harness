@@ -1,0 +1,27 @@
+{
+  "name": "harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal research harness: brief -> listings -> evidence -> ranked export.",
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "volta": {
+    "node": "24.15.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "linkedom": "^0.18.13",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
