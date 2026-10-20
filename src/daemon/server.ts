@@ -4,7 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { serializeBrief } from "../brief/brief.ts";
+import { serializeBrief, toYaml } from "../brief/brief.ts";
 import type { CampaignManager, CampaignRuntime } from "./manager.ts";
 
 export interface DaemonServerOptions {
@@ -105,6 +105,26 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
         return send(res, 404, { error: `no route for ${req.method} ${path}` });
       }
 
+      if (
+        segments.length === 2 &&
+        segments[1] === "preview" &&
+        req.method === "POST"
+      ) {
+        const body = await readJson(req);
+        const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+        if (!prompt) return send(res, 400, { error: "prompt is required" });
+        const preview = await manager.preview({
+          prompt,
+          pack: typeof body.pack === "string" ? body.pack : undefined,
+        });
+        return send(res, 200, {
+          brief: toYaml(preview.brief),
+          criteria: preview.brief.criteria,
+          echo: preview.echo,
+          warnings: preview.brief.warnings,
+        });
+      }
+
       if (segments.length === 1) {
         if (req.method === "GET") {
           return send(res, 200, { campaigns: manager.list() });
@@ -114,7 +134,12 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
           const prompt =
             typeof body.prompt === "string" ? body.prompt.trim() : undefined;
           const brief =
-            typeof body.brief === "string" ? body.brief : undefined;
+            typeof body.brief === "string" ||
+            (body.brief !== null &&
+              typeof body.brief === "object" &&
+              !Array.isArray(body.brief))
+              ? (body.brief as string | Record<string, unknown>)
+              : undefined;
           if (!prompt && !brief) {
             return send(res, 400, { error: "prompt or brief is required" });
           }
@@ -143,6 +168,8 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
         return send(res, 200, {
           campaign: manager.status(runtime),
           brief: serializeBrief(runtime.brief),
+          criteria: runtime.brief.criteria,
+          warnings: runtime.brief.warnings,
         });
       }
 

@@ -17,6 +17,7 @@ import { McpBrowser } from "./browser/mcp.ts";
 import { runCampaign, type CampaignSummary, type RunnerDeps } from "./runner/loop.ts";
 import { ResponsesClient } from "./vision/responses.ts";
 import { extractImageFacts } from "./vision/vision.ts";
+import { TextCriteriaExtractor } from "./runner/text-extract.ts";
 
 export interface CliOptions {
   db: string;
@@ -177,6 +178,8 @@ export async function main(
     token: process.env.HARNESS_TOKEN,
   };
 
+  const textExtractor = new TextCriteriaExtractor(router, model);
+
   const deps: RunnerDeps = {
     store,
     browser,
@@ -199,6 +202,10 @@ export async function main(
             return result.facts;
           },
         },
+    text: {
+      model,
+      extract: (input) => textExtractor.extract(input),
+    },
     geo: process.env.ORS_API_KEY
       ? new CachedGeoService({
           geocoder: new NominatimGeocoder(),

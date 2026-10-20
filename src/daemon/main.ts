@@ -8,6 +8,7 @@ import { NominatimGeocoder, MemoryGeoCache, OpenRouteServiceRouter } from "../ge
 import { CachedGeoService } from "../geo/service.ts";
 import { ResponsesClient } from "../vision/responses.ts";
 import { extractImageFacts } from "../vision/vision.ts";
+import { TextCriteriaExtractor } from "../runner/text-extract.ts";
 import { CampaignManager } from "./manager.ts";
 import { createDaemonServer } from "./server.ts";
 
@@ -31,6 +32,8 @@ export async function startDaemon(): Promise<void> {
   );
   const browser = await McpBrowser.connect();
 
+  const textExtractor = new TextCriteriaExtractor(router, model);
+
   const manager = new CampaignManager({
     root,
     providers: {
@@ -50,6 +53,10 @@ export async function startDaemon(): Promise<void> {
               return result.facts;
             },
           },
+      text: {
+        model,
+        extract: (input) => textExtractor.extract(input),
+      },
       geo: process.env.ORS_API_KEY
         ? new CachedGeoService({
             geocoder: new NominatimGeocoder(),
