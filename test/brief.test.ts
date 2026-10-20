@@ -82,7 +82,11 @@ test("compileBrief uses the injected extractor", async () => {
   const { compileBrief } = await import("../src/brief/brief.ts");
   const brief = await compileBrief("cheap rental", propertyPack, extractor);
   assert.equal(brief.hard.rentMax, 500);
-  assert.equal(brief.soft.length, propertyPack.defaultCriteria.length);
+  assert.equal(brief.soft.length, propertyPack.defaultCriteria.length - 1);
+  assert.equal(
+    brief.soft.some((criterion) => criterion.key === "commute"),
+    false,
+  );
 });
 
 test("echoBrief states hard limits, weights, commute, and assumptions", () => {

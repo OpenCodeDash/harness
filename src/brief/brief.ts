@@ -171,6 +171,9 @@ export function briefFromExtraction(
     if (key && weights.has(key)) weights.set(key, item.weight);
   }
 
+  if (parsed.hard?.bedrooms) weights.delete("bedrooms");
+  if (!parsed.anchors?.commute && !parsed.anchors?.work) weights.delete("commute");
+
   const candidate: BriefYaml = {
     version: 1,
     domain: pack.id,
