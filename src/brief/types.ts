@@ -43,6 +43,7 @@ export interface Budgets {
   maxUsd: number;
   maxMinutes: number;
   visionMax: number;
+  htmlMax: number;
 }
 
 export interface Brief {
@@ -81,4 +82,5 @@ export const DEFAULT_BUDGETS: Budgets = {
   maxUsd: 15,
   maxMinutes: 120,
   visionMax: 60,
+  htmlMax: 25,
 };

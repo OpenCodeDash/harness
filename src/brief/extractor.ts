@@ -309,8 +309,9 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
           max_usd: { type: "number" },
           max_minutes: { type: "number" },
           vision_max: { type: "number" },
+          html_max: { type: "number" },
         },
-        required: ["max_listings", "max_usd", "max_minutes", "vision_max"],
+        required: ["max_listings", "max_usd", "max_minutes", "vision_max", "html_max"],
         additionalProperties: false,
       },
       assumptions: { type: "array", items: { type: "string" } },
@@ -502,6 +503,9 @@ export class ResponsesBriefExtractor implements BriefExtractor {
       }
       if (typeof budgets.vision_max !== "number" || budgets.vision_max < 0) {
         delete budgets.vision_max;
+      }
+      if (typeof budgets.html_max !== "number" || budgets.html_max < 0) {
+        delete budgets.html_max;
       }
       if (Object.keys(budgets).length === 0) delete cleaned.budgets;
     }

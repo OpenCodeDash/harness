@@ -25,8 +25,8 @@ sources:
 Rules:
 
 - `web: open` (default) searches every registered source.
-- `web: structured-only` skips sources whose discovery kind is `html` (the generic scraper
-  fallback); site recipes and JSON-LD still run.
+- `web: structured-only` discards generic HTML extraction (ADR 0016), including the text
+  fallback inside the generic web source; site recipes and JSON-LD still run.
 - `web: off` searches only explicitly allowed sources. With no `allow` list, discovery runs
   nothing.
 - `allow` and `deny` match a source id (`trademe`) or a host (`trademe.co.nz`, including

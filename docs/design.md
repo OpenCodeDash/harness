@@ -154,6 +154,7 @@ budgets:
   max_usd: 15
   max_minutes: 120
   vision_max: 60
+  html_max: 25
 assumptions:
   - "near work means <=25 min drive in light traffic"
 warnings: []
@@ -282,8 +283,12 @@ interface Recipe {
 - Site recipes win by priority. A generic **JSON-LD fallback** handles any other HTTP page
   that publishes `schema.org` structured data: it flattens `@graph` and `ItemList`, prefers
   listing entities (`Product`, `Vehicle`, `RealEstateListing`, …), and maps name, description,
-  price, brand, model, year, mileage, condition, address, geo, and images. Pages without
-  usable JSON-LD still fail loudly (ADR 0012).
+  price, brand, model, year, mileage, condition, address, geo, and images.
+- Pages without usable JSON-LD get a **generic HTML text fallback**: title, meta description
+  or main text, canonical URL, obvious price, and og:image. Results are marked
+  `sourceRef: generic:html` with confidence 0.5, are discarded under
+  `sources.web: structured-only`, and are capped by `budgets.html_max`. Pages with no usable
+  content still fail loudly (ADR 0016).
 - Unknown sites without JSON-LD fall back to a single schema-constrained "propose a recipe"
   model call; the result is reviewed and stored as a recipe. There is no freeform browsing
   agent in the runtime (ADR 0010).
@@ -360,7 +365,7 @@ recipe(id, version, code, last_ok_at)
 
 Stopping is explicit, never "looks good enough":
 
-- `max_listings`, `max_usd`, `max_minutes`, `vision_max`, and diminishing returns (a full
+- `max_listings`, `max_usd`, `max_minutes`, `vision_max`, `html_max`, and diminishing returns (a full
   discovery pass with no new passing listings).
 - Every stop records a `stop_reason`.
 

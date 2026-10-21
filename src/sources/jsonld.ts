@@ -348,13 +348,126 @@ export function extractJsonLdListings(
   return listings;
 }
 
+/**
+ * Last-resort extraction for pages without JSON-LD.
+ *
+ * Self-contained: stringified into `page.evaluate`. It only reads visible text
+ * and standard metadata; the result is marked as lower-confidence evidence and
+ * is budget-gated by the runner.
+ */
+export function extractFallbackListing(
+  document: Document,
+  pageUrl: string,
+): unknown {
+  const FIRST = 0;
+
+  const clean = (value: string | null | undefined): string | undefined => {
+    const text = (value ?? "").replace(/\s+/g, " ").trim();
+    return text || undefined;
+  };
+
+  const meta = (selector: string): string | undefined =>
+    clean(document.querySelector(selector)?.getAttribute("content"));
+
+  const absolute = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    try {
+      return new URL(value, pageUrl).toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const parsePrice = (value: string | undefined): number | undefined => {
+    if (!value) return undefined;
+    const match = value
+      .replaceAll(",", "")
+      .match(/(?:\$|£|€|¥)\s*(\d+(?:\.\d{1,2})?)/);
+    if (!match) return undefined;
+    const price = Number(match[FIRST + 1]);
+    return Number.isFinite(price) ? price : undefined;
+  };
+
+  const main =
+    document.querySelector("main, article, [role='main']") ?? document.body;
+  const bodyText = clean(main?.textContent)?.slice(0, 20_000);
+
+  const title =
+    meta('meta[property="og:title"]') ??
+    meta('meta[name="twitter:title"]') ??
+    clean(document.querySelector("h1")?.textContent) ??
+    clean(document.title);
+
+  const description =
+    meta('meta[name="description"]') ??
+    meta('meta[property="og:description"]') ??
+    meta('meta[name="twitter:description"]') ??
+    bodyText?.slice(0, 4_000);
+
+  const price =
+    parsePrice(meta('meta[property="product:price:amount"]')) ??
+    parsePrice(
+      document.querySelector("[itemprop='price']")?.getAttribute("content") ??
+        clean(document.querySelector("[itemprop='price']")?.textContent),
+    ) ??
+    parsePrice(bodyText);
+
+  if (!title && !description && price === undefined) return null;
+  const descriptionLength = description?.length ?? 0;
+  const hasSignal =
+    price !== undefined ||
+    (Boolean(title) && descriptionLength >= 20) ||
+    descriptionLength >= 80;
+  if (!hasSignal) return null;
+
+  const canonical = absolute(
+    document.querySelector("link[rel='canonical']")?.getAttribute("href") ??
+      pageUrl,
+  );
+  const url = canonical ?? pageUrl;
+
+  let externalId = url;
+  try {
+    const parsed = new URL(url);
+    const segment = parsed.pathname.split("/").filter(Boolean).pop();
+    externalId = segment ? decodeURIComponent(segment) : parsed.hostname;
+  } catch {
+    externalId = url;
+  }
+
+  const media = [
+    meta('meta[property="og:image"]'),
+    meta('meta[name="twitter:image"]'),
+    document.querySelector("link[rel='image_src']")?.getAttribute("href") ??
+      undefined,
+  ]
+    .map(absolute)
+    .filter((entry): entry is string => Boolean(entry))
+    .filter((entry, index, all) => all.indexOf(entry) === index);
+
+  return {
+    externalId,
+    url,
+    fields: {
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(price !== undefined ? { price } : {}),
+    },
+    media,
+    sourceRef: "generic:html",
+    confidence: 0.5,
+    fallback: true,
+    raw: { fallback: "html" },
+  };
+}
+
 export const jsonLdRecipe: Recipe = {
   id: "jsonld",
   domain: "generic",
   version: 1,
   priority: 0,
   discovery: {
-    label: "Open web (JSON-LD)",
+    label: "Open web (JSON-LD + text)",
     queryTemplates: [
       { template: "{prompt}" },
       {
@@ -377,7 +490,10 @@ export const jsonLdRecipe: Recipe = {
       if (!raw.trim()) continue;
       try { documents.push(JSON.parse(raw)); } catch (error) {}
     }
-    return (${extractJsonLdListings.toString()})(documents, location.href);
+    const listings = (${extractJsonLdListings.toString()})(documents, location.href);
+    if (listings.length) return listings;
+    const fallback = (${extractFallbackListing.toString()})(document, location.href);
+    return fallback ? [fallback] : [];
   }`,
   listingScript: `() => {
     const __name = (fn) => fn;
@@ -388,7 +504,8 @@ export const jsonLdRecipe: Recipe = {
       try { documents.push(JSON.parse(raw)); } catch (error) {}
     }
     const listings = (${extractJsonLdListings.toString()})(documents, location.href);
-    return listings.length ? listings[0] : null;
+    if (listings.length) return listings[0];
+    return (${extractFallbackListing.toString()})(document, location.href);
   }`,
 };
 

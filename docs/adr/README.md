@@ -19,5 +19,6 @@ One decision per file. Status is `proposed`, `accepted`, or `superseded`.
 | [0013](0013-sources-own-discovery.md) | Source integrations own discovery query templates | accepted |
 | [0014](0014-brief-source-scope.md) | Open web by default, brief-scoped sources | accepted |
 | [0015](0015-optional-domain-packs.md) | Domain packs are optional presets with a generic fallback | accepted |
+| [0016](0016-generic-html-fallback.md) | Generic HTML text fallback for non-JSON-LD pages | accepted |
 
 Add a new ADR rather than editing an accepted one; supersede it instead.
