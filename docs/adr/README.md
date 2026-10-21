@@ -22,5 +22,6 @@ One decision per file. Status is `proposed`, `accepted`, or `superseded`.
 | [0016](0016-generic-html-fallback.md) | Generic HTML text fallback for non-JSON-LD pages | accepted |
 | [0017](0017-remove-domain-packs.md) | Remove domain packs; one canonical field vocabulary | accepted |
 | [0018](0018-runtime-page-classification.md) | Classify pages at runtime and expand index pages | accepted |
+| [0019](0019-model-planned-discovery.md) | Plan discovery queries with the model | accepted |
 
 Add a new ADR rather than editing an accepted one; supersede it instead.

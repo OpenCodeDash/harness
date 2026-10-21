@@ -9,6 +9,7 @@ import type { CampaignStore } from "./campaign/store.ts";
 import { CampaignStore as Store } from "./campaign/store.ts";
 import { createControlServer, type ControlServer, type ControlState } from "./control/api.ts";
 import { connectSearxngMcp } from "./discovery/searxng.ts";
+import { ResponsesQueryPlanner } from "./discovery/planner.ts";
 import { NominatimGeocoder, OpenRouteServiceRouter } from "./geo/providers.ts";
 import { CachedGeoService } from "./geo/service.ts";
 import { McpBrowser } from "./browser/mcp.ts";
@@ -135,6 +136,7 @@ export async function main(
     timeoutMs: 120_000,
   });
   const model = env("HARNESS_MODEL", "opencode-go-gpt-5.6-luna");
+  const planner = new ResponsesQueryPlanner(router, model);
 
   let brief: Brief;
   if (options.briefPath) {
@@ -173,6 +175,7 @@ export async function main(
     store,
     browser,
     search: search.provider,
+    planner,
     mediaDir: options.mediaDir,
     exportPath: options.exportPath,
     visitDetails: !options.noDetails,

@@ -5,6 +5,7 @@ import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
 import type { ImageFeatureDef } from "../domain/types.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
+import type { PlannedQuery, QueryPlanner } from "../discovery/planner.ts";
 import { canonicalUrl, type SearchProvider } from "../discovery/searxng.ts";
 import type { CachedGeoService } from "../geo/service.ts";
 import type { GeoPoint } from "../geo/types.ts";
@@ -99,6 +100,7 @@ export interface RunnerDeps {
   store: CampaignStore;
   browser: BrowserProvider;
   search: SearchProvider;
+  planner?: QueryPlanner;
   geo?: CachedGeoService;
   vision?: VisionAdapter;
   text?: TextAdapter;
@@ -132,6 +134,7 @@ export interface CampaignSummary {
   spendUsd: number;
   csv: string;
   errors: string[];
+  warnings: string[];
 }
 
 interface Progress {
@@ -202,6 +205,7 @@ export async function runCampaign(
   let seeds: string[] = progress?.seeds ?? [];
   let discovered = seeds.length;
   let collected = 0;
+  const warnings: string[] = [];
 
   const log = (level: "info" | "error", message: string) => {
     emit({
@@ -214,8 +218,9 @@ export async function runCampaign(
     });
   };
 
+  let discovery: DiscoveryResult | null = null;
   if (!progress) {
-    const found = await discover(deps, brief, errors, {
+    discovery = await discover(deps, brief, errors, {
       progress: (current, total, message) =>
         emit({
           type: "progress",
@@ -229,8 +234,10 @@ export async function runCampaign(
         }),
       log,
     });
-    seeds = found;
+    seeds = discovery.seeds;
     discovered = seeds.length;
+    warnings.push(...discovery.warnings);
+    for (const warning of discovery.warnings) log("info", warning);
     checkpoint({ stage: "collect", seeds, index: 0 });
     emit({
       type: "stage",
@@ -242,9 +249,23 @@ export async function runCampaign(
     log("info", `discovered ${discovered} seed pages`);
   }
 
-  let stopReason: "complete" | "paused" | "budget" | "stopped" = "complete";
+  let stopReason:
+    | "complete"
+    | "paused"
+    | "budget"
+    | "stopped"
+    | "search-unavailable"
+    | "no-listing-pages"
+    | "no-listings" =
+    discovery && seeds.length === 0
+      ? discovery.hits === 0
+        ? "search-unavailable"
+        : "no-listing-pages"
+      : "complete";
   let budgetHit = false;
   let detailCount = 0;
+  let indexPages = 0;
+  let listingPages = 0;
 
   if (!progress || progress.stage === "collect") {
     const start = progress?.index ?? 0;
@@ -317,6 +338,8 @@ export async function runCampaign(
             kind = "index";
           }
         }
+        if (kind === "index") indexPages += 1;
+        else listingPages += 1;
 
         if (items.length === 0) {
           const text = `no listing data on ${url}`;
@@ -384,6 +407,16 @@ export async function runCampaign(
       spendUsd: spend,
     });
     log("info", `collected ${collected} listings from ${seeds.length} seed pages`);
+    if (listingPages === 0 && indexPages > 0) {
+      warnings.push(
+        `all ${indexPages} seed pages were index pages; no detail page was collected directly`,
+      );
+    }
+    if (collected === 0 && seeds.length > 0 && stopReason === "complete") {
+      stopReason = "no-listings";
+      warnings.push(`no listings collected from ${seeds.length} seed pages`);
+    }
+    for (const warning of warnings) log("info", warning);
   }
 
   if (stopReason === "complete" && progress?.stage === "text") {
@@ -500,7 +533,16 @@ export async function runCampaign(
     spendUsd: spend,
     csv,
     errors,
+    warnings,
   };
+}
+
+interface DiscoveryResult {
+  seeds: string[];
+  queries: number;
+  hits: number;
+  accepted: number;
+  warnings: string[];
 }
 
 async function discover(
@@ -511,7 +553,7 @@ async function discover(
     progress: (current: number, total: number, message: string) => void;
     log: (level: "info" | "error", message: string) => void;
   },
-): Promise<string[]> {
+): Promise<DiscoveryResult> {
   const recipes = listRecipes();
   const selection = selectSources(recipes, brief.sources);
   for (const warning of selection.warnings) {
@@ -529,25 +571,54 @@ async function discover(
     (source) => source.discovery?.label ?? source.id,
   );
   report.log("info", `sources: ${active.join(", ") || "none"}`);
+  const warnings: string[] = [];
   if (!selection.active.length) {
     report.log("error", "no sources available under the brief's source policy");
-    return [];
+    warnings.push("no sources available under the source policy");
+    return { seeds: [], queries: 0, hits: 0, accepted: 0, warnings };
   }
 
-  const queries = buildDiscoveryQueries(brief, selection.active);
-  const seeds = new Set<string>();
+  let planned: PlannedQuery[] = [];
+  if (deps.planner) {
+    try {
+      planned = await deps.planner.plan({ brief, sources: selection.active });
+      if (!planned.length) {
+        report.log("info", "query planner returned no usable queries");
+      }
+    } catch (error) {
+      const text = `query planner: ${message(error)}`;
+      report.log("info", text);
+      warnings.push(text);
+    }
+  }
+  if (!planned.length) {
+    planned = buildDiscoveryQueries(brief, selection.active).map((query) => ({
+      query,
+    }));
+    if (planned.length) report.log("info", "using source query templates");
+  }
+  if (!planned.length) {
+    report.log("error", "no discovery queries could be built");
+    warnings.push("no discovery queries could be built");
+    return { seeds: [], queries: 0, hits: 0, accepted: 0, warnings };
+  }
 
-  for (const [index, query] of queries.entries()) {
+  const seeds = new Set<string>();
+  let hits = 0;
+  for (const [index, plannedQuery] of planned.entries()) {
     if (seeds.size >= brief.budgets.maxListings) break;
-    report.progress(index + 1, queries.length, `searching: ${query}`);
+    const query = plannedQuery.site
+      ? `site:${plannedQuery.site} ${plannedQuery.query}`
+      : plannedQuery.query;
+    report.progress(index + 1, planned.length, `searching: ${query}`);
     try {
       const results = await deps.search.search(query, { limit: 10 });
+      hits += results.length;
+      report.log("info", `search "${query}": ${results.length} result(s)`);
       for (const result of results) {
         const recipe = getRecipeFor(result.url);
         if (!recipe) continue;
-        if (
-          !isUrlAllowed(result.url, brief.sources, recipes, recipe.id)
-        ) {
+        if (!isUrlAllowed(result.url, brief.sources, recipes, recipe.id)) {
           continue;
         }
         seeds.add(result.url);
@@ -559,7 +630,23 @@ async function discover(
       report.log("error", text);
     }
   }
-  return [...seeds];
+
+  if (hits === 0) {
+    warnings.push(
+      "every discovery query returned 0 results; the search backend may be unavailable",
+    );
+  } else if (seeds.size === 0) {
+    warnings.push(
+      `discovery returned ${hits} result(s) but none were accepted by a recipe or the source policy`,
+    );
+  }
+  return {
+    seeds: [...seeds],
+    queries: planned.length,
+    hits,
+    accepted: seeds.size,
+    warnings,
+  };
 }
 
 function ingest(

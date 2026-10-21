@@ -24,6 +24,7 @@ import {
 } from "../runner/loop.ts";
 import { persistScores, scoreCampaign } from "../runner/score.ts";
 import type { SearchProvider } from "../discovery/searxng.ts";
+import type { QueryPlanner } from "../discovery/planner.ts";
 import type { CachedGeoService } from "../geo/service.ts";
 import { CampaignRegistry, type CampaignRecord } from "./registry.ts";
 
@@ -42,6 +43,7 @@ export interface CampaignRuntime {
 export interface ManagerProviders {
   browser: BrowserProvider;
   search: SearchProvider;
+  planner?: QueryPlanner;
   geo?: CachedGeoService;
   vision?: VisionAdapter;
   text?: TextAdapter;
@@ -160,6 +162,7 @@ export class CampaignManager {
             spendUsd: run.spendUsd,
             csv: scored.csv,
             errors: [],
+            warnings: [],
           };
         }
         runtime.events.setMaxListeners(0);
@@ -469,6 +472,7 @@ export class CampaignManager {
       store: runtime.store,
       browser: this.options.providers.browser,
       search: this.options.providers.search,
+      planner: this.options.providers.planner,
       geo: this.options.providers.geo,
       vision: this.options.providers.vision,
       text: this.options.providers.text,
