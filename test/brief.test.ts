@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   applyBriefDelta,
   briefFromExtraction,
+  detectOnlySite,
   echoBrief,
+  extractSeedUrls,
   parseBrief,
   serializeBrief,
 } from "../src/brief/brief.ts";
@@ -320,4 +322,51 @@ test("a prompt compiles with the core vocabulary and no preset", () => {
   const brief = briefFromExtraction("find something", {});
   assert.equal(brief.domain, "generic");
   assert.ok(brief.criteria.some((criterion) => criterion.key === "price"));
+});
+
+test("seed URLs and only-site phrases are extracted from the prompt", () => {
+  const prompt =
+    "only from trademe.co.nz: https://www.trademe.co.nz/a/marketplace/listing/1 and https://example.com/x.";
+  assert.deepEqual(extractSeedUrls(prompt), [
+    "https://www.trademe.co.nz/a/marketplace/listing/1",
+    "https://example.com/x",
+  ]);
+  assert.equal(detectOnlySite(prompt), "trademe.co.nz");
+  assert.equal(detectOnlySite("trademe.co.nz only"), "trademe.co.nz");
+  assert.equal(detectOnlySite("find a macbook"), null);
+});
+
+test("compiling an only-site prompt creates an allow-list and seeds", () => {
+  const brief = briefFromExtraction(
+    "only from trademe.co.nz: https://www.trademe.co.nz/a/listing/1",
+    {},
+  );
+  assert.deepEqual(brief.sources.allow, ["trademe.co.nz"]);
+  assert.equal(brief.sources.web, "off");
+  assert.deepEqual(brief.seeds, ["https://www.trademe.co.nz/a/listing/1"]);
+  assert.ok(brief.assumptions.some((line) => line.includes("provided URL")));
+});
+
+test("seeds and queries round-trip through YAML", () => {
+  const brief = briefFromExtraction("find a laptop", {
+    seeds: ["https://shop.test/listing/1"],
+    queries: ["m2 macbook auckland"],
+  });
+  const again = parseBrief(serializeBrief(brief));
+  assert.deepEqual(again.seeds, brief.seeds);
+  assert.deepEqual(again.queries, brief.queries);
+});
+
+test("feedback can add source scope, seeds, and queries", () => {
+  const brief = briefFromExtraction("find a laptop", {});
+  const next = applyBriefDelta(brief, {
+    action: "re-search",
+    sources: { allow: ["trademe.co.nz"], web: "off" },
+    seeds: ["https://shop.test/listing/2"],
+    queries: ["m2 macbook auckland"],
+  });
+  assert.deepEqual(next.sources.allow, ["trademe.co.nz"]);
+  assert.equal(next.sources.web, "off");
+  assert.deepEqual(next.seeds, ["https://shop.test/listing/2"]);
+  assert.deepEqual(next.queries, ["m2 macbook auckland"]);
 });

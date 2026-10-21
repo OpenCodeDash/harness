@@ -191,7 +191,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
         const body = await readJson(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) return send(res, 400, { error: "text is required" });
-        return send(res, 200, manager.feedback(runtime.record.id, text));
+        return send(res, 200, await manager.feedback(runtime.record.id, text));
       }
 
       if (action === "pause" && req.method === "POST") {

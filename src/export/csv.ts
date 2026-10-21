@@ -2,6 +2,7 @@ import type { Brief } from "../brief/types.ts";
 import type { Listing } from "../campaign/types.ts";
 import { criterionFactKey } from "../domain/types.ts";
 import type { Fact, ScoreResult } from "../scoring/score.ts";
+import { factFor } from "../scoring/score.ts";
 import { isTie } from "../scoring/score.ts";
 
 export type Cell = string | number | boolean | null;
@@ -126,7 +127,7 @@ export function buildExportTable(
 
     for (const criterion of criteria) {
       row[`criterion:${criterion.key}`] = formatCell(
-        item.facts.get(criterionFactKey(criterion))?.value,
+        factFor(item.facts, criterionFactKey(criterion))?.value,
       );
     }
 

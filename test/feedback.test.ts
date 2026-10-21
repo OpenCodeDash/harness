@@ -5,6 +5,12 @@ import {
   applyFeedback,
   interpretFeedback,
 } from "../src/feedback/interpret.ts";
+import {
+  applyFeedbackWithInterpreter,
+  ResponsesFeedbackInterpreter,
+  type FeedbackInterpreter,
+} from "../src/feedback/model.ts";
+import type { ResponsesClient } from "../src/vision/responses.ts";
 
 function baseBrief() {
   return briefFromExtraction("find a rental", {
@@ -96,4 +102,80 @@ test("interpretFeedback is pure", () => {
   const before = JSON.stringify(brief);
   interpretFeedback("also look at Petone", brief);
   assert.equal(JSON.stringify(brief), before);
+});
+
+test("the model interpreter turns feedback into a source/seed delta", async () => {
+  const client = {
+    async structured() {
+      return {
+        data: {
+          action: "re-score",
+          setWeights: null,
+          addCriteria: null,
+          removeCriteria: null,
+          hard: null,
+          commute: null,
+          addAreas: null,
+          addAssumptions: null,
+          removeAssumptions: null,
+          sources: { allow: ["trademe.co.nz"], web: "off" },
+          seeds: ["https://www.trademe.co.nz/a/marketplace/listing/1"],
+          removeSeeds: null,
+          queries: ["m2 macbook auckland"],
+          note: null,
+        },
+      };
+    },
+  } as unknown as ResponsesClient;
+
+  const interpreter = new ResponsesFeedbackInterpreter(client, "model");
+  const applied = await applyFeedbackWithInterpreter(
+    baseBrief(),
+    "only trademe.co.nz, start from that listing",
+    interpreter,
+  );
+
+  assert.equal(applied.changed, true);
+  assert.equal(applied.delta.action, "re-search");
+  assert.deepEqual(applied.brief.sources.allow, ["trademe.co.nz"]);
+  assert.equal(applied.brief.sources.web, "off");
+  assert.deepEqual(applied.brief.seeds, [
+    "https://www.trademe.co.nz/a/marketplace/listing/1",
+  ]);
+  assert.deepEqual(applied.brief.queries, ["m2 macbook auckland"]);
+  assert.match(applied.summary, /allow trademe\.co\.nz/);
+});
+
+test("the interpreter falls back to the regex parser when the model fails", async () => {
+  const broken: FeedbackInterpreter = {
+    async interpret() {
+      throw new Error("model down");
+    },
+  };
+  const applied = await applyFeedbackWithInterpreter(
+    baseBrief(),
+    "2-3 bedrooms only",
+    broken,
+  );
+  assert.deepEqual(applied.brief.hard.bedrooms, { min: 2, max: 3 });
+});
+
+test("the interpreter falls back when the model understands nothing", async () => {
+  const empty: FeedbackInterpreter = {
+    async interpret() {
+      return {
+        delta: { action: "re-score" },
+        summary: "No change understood.",
+        changed: false,
+        unparsed: ["x"],
+      };
+    },
+  };
+  const applied = await applyFeedbackWithInterpreter(
+    baseBrief(),
+    "also look at Petone",
+    empty,
+  );
+  assert.equal(applied.delta.action, "re-search");
+  assert.deepEqual(applied.delta.addAreas, ["Petone"]);
 });

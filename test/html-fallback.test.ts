@@ -113,3 +113,25 @@ test("the recipe uses HTML fallback only when JSON-LD is absent", () => {
   assert.equal(structured.externalId, "BIKE-1");
   assert.equal(structured.fallback, undefined);
 });
+
+test("extracts specs from definition lists and two-column tables", () => {
+  const html = `<html><head><title>MacBook</title></head><body><main>
+    <h1>MacBook Pro</h1>
+    <p>Great condition, $2,000.</p>
+    <dl>
+      <dt>RAM Size</dt><dd>16GB</dd>
+      <dt>Storage</dt><dd>512GB</dd>
+    </dl>
+    <table>
+      <tr><th>Battery Health</th><td>90%</td></tr>
+    </table>
+  </main></body></html>`;
+  const listing = extractFallbackListing(documentFor(html), PAGE_URL) as {
+    fields: Record<string, unknown>;
+  };
+  assert.deepEqual(listing.fields.specs, {
+    ram_size: "16GB",
+    storage: "512GB",
+    battery_health: "90%",
+  });
+});

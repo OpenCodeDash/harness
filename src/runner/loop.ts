@@ -4,6 +4,7 @@ import { serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
 import type { ImageFeatureDef } from "../domain/types.ts";
+import { flattenSpecs } from "../domain/specs.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
 import type { PlannedQuery, QueryPlanner } from "../discovery/planner.ts";
 import { canonicalUrl, type SearchProvider } from "../discovery/searxng.ts";
@@ -220,24 +221,34 @@ export async function runCampaign(
 
   let discovery: DiscoveryResult | null = null;
   if (!progress) {
-    discovery = await discover(deps, brief, errors, {
-      progress: (current, total, message) =>
-        emit({
-          type: "progress",
-          stage: "discover",
-          current,
-          total,
-          message,
-          discovered,
-          collected,
-          spendUsd: spend,
-        }),
-      log,
-    });
-    seeds = discovery.seeds;
-    discovered = seeds.length;
-    warnings.push(...discovery.warnings);
-    for (const warning of discovery.warnings) log("info", warning);
+    const provided = options.seedUrls ?? brief.seeds;
+    if (provided.length) {
+      seeds = [...new Set(provided)];
+      discovered = seeds.length;
+      log(
+        "info",
+        `using ${seeds.length} provided seed URL(s); skipping discovery`,
+      );
+    } else {
+      discovery = await discover(deps, brief, errors, {
+        progress: (current, total, message) =>
+          emit({
+            type: "progress",
+            stage: "discover",
+            current,
+            total,
+            message,
+            discovered,
+            collected,
+            spendUsd: spend,
+          }),
+        log,
+      });
+      seeds = discovery.seeds;
+      discovered = seeds.length;
+      warnings.push(...discovery.warnings);
+      for (const warning of discovery.warnings) log("info", warning);
+    }
     checkpoint({ stage: "collect", seeds, index: 0 });
     emit({
       type: "stage",
@@ -319,25 +330,50 @@ export async function runCampaign(
       try {
         page = await deps.browser.newPage(url);
         const pageKey = canonicalUrl(url);
-        let items: RawListing[];
-        let kind: "listing" | "index";
-        if (recipe.isListing(url)) {
-          items = [await runListing(page, recipe, url)];
-          kind = "listing";
-        } else {
-          items = await runSearch(page, recipe, url);
-          const distinct = items.filter(
+        const activePage = page;
+        const extractPage = async (activeRecipe: Recipe) => {
+          if (activeRecipe.isListing(url)) {
+            return {
+              kind: "listing" as const,
+              items: [await runListing(activePage, activeRecipe, url)],
+            };
+          }
+          let extracted = await runSearch(activePage, activeRecipe, url);
+          const distinct = extracted.filter(
             (item) => canonicalUrl(item.url) !== pageKey,
           );
+          let pageKind: "listing" | "index";
           if (distinct.length > 0) {
-            kind = "index";
-          } else if (items.length <= 1) {
-            kind = "listing";
-            items = items.slice(0, 1);
+            pageKind = "index";
+          } else if (extracted.length <= 1) {
+            pageKind = "listing";
+            const single = extracted.slice(0, 1);
+            try {
+              extracted = [await runListing(activePage, activeRecipe, url)];
+            } catch {
+              extracted = single;
+            }
           } else {
-            kind = "index";
+            pageKind = "index";
           }
+          return { kind: pageKind, items: extracted };
+        };
+
+        let usedRecipe = recipe;
+        let extracted: { kind: "listing" | "index"; items: RawListing[] };
+        try {
+          extracted = await extractPage(recipe);
+        } catch (error) {
+          const generic = listRecipes().find((entry) => entry.id === "jsonld");
+          if (!generic || generic.id === recipe.id) throw error;
+          log(
+            "info",
+            `recipe ${recipe.id} failed on ${url}; retrying with generic extraction`,
+          );
+          usedRecipe = generic;
+          extracted = await extractPage(generic);
         }
+        const { items, kind } = extracted;
         if (kind === "index") indexPages += 1;
         else listingPages += 1;
 
@@ -349,7 +385,7 @@ export async function runCampaign(
           const ingested: RawListing[] = [];
           for (const item of items) {
             if (!allowFallback(item)) continue;
-            ingest(store, recipe, item, observe);
+            ingest(store, usedRecipe, item, observe);
             ingested.push(item);
             collected += 1;
             if (collected >= brief.budgets.maxListings) break;
@@ -370,9 +406,9 @@ export async function runCampaign(
               let detailPage: RunnerPage | null = null;
               try {
                 detailPage = await deps.browser.newPage(item.url);
-                const detail = await runListing(detailPage, recipe, item.url);
+                const detail = await runListing(detailPage, usedRecipe, item.url);
                 if (allowFallback(detail)) {
-                  ingest(store, recipe, detail, observe);
+                  ingest(store, usedRecipe, detail, observe);
                 }
                 detailCount += 1;
               } catch (error) {
@@ -591,6 +627,15 @@ async function discover(
       warnings.push(text);
     }
   }
+  if (brief.queries.length) {
+    const explicit = brief.queries.map((query) => ({ query }));
+    const seen = new Set(explicit.map((entry) => entry.query.toLowerCase()));
+    planned = [
+      ...explicit,
+      ...planned.filter((entry) => !seen.has(entry.query.toLowerCase())),
+    ];
+    report.log("info", `including ${brief.queries.length} user-specified query(ies)`);
+  }
   if (!planned.length) {
     planned = buildDiscoveryQueries(brief, selection.active).map((query) => ({
       query,
@@ -674,6 +719,20 @@ function ingest(
       value,
       sourceType: "page",
       sourceRef,
+      confidence,
+      observedAt,
+    });
+  }
+
+  const specs = flattenSpecs(item.fields.specs);
+  for (const [key, value] of Object.entries(specs)) {
+    if (item.fields[key] !== undefined) continue;
+    store.addEvidence({
+      listingId: listing.id,
+      key,
+      value,
+      sourceType: "page",
+      sourceRef: `${sourceRef}:specs`,
       confidence,
       observedAt,
     });

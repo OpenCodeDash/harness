@@ -5,6 +5,7 @@ import { ResponsesBriefExtractor } from "../brief/extractor.ts";
 import { McpBrowser } from "../browser/mcp.ts";
 import { connectSearxngMcp } from "../discovery/searxng.ts";
 import { ResponsesQueryPlanner } from "../discovery/planner.ts";
+import { ResponsesFeedbackInterpreter } from "../feedback/model.ts";
 import { NominatimGeocoder, MemoryGeoCache, OpenRouteServiceRouter } from "../geo/providers.ts";
 import { CachedGeoService } from "../geo/service.ts";
 import { ResponsesClient } from "../vision/responses.ts";
@@ -69,6 +70,7 @@ export async function startDaemon(): Promise<void> {
           })
         : undefined,
     },
+    feedbackInterpreter: new ResponsesFeedbackInterpreter(router, model),
     compileBrief: (prompt) =>
       compileBrief(prompt, new ResponsesBriefExtractor(router, model)),
   });

@@ -39,7 +39,9 @@ function makeBrief(
     criteria:
       criteria ?? (soft ?? []).map(({ key, weight }) => criterionFor(key, weight)),
     unknownPolicy: "flag",
-  sources: DEFAULT_SOURCE_SCOPE,
+    sources: DEFAULT_SOURCE_SCOPE,
+    seeds: [],
+    queries: [],
     budgets: DEFAULT_BUDGETS,
     assumptions: [],
     warnings: [],
@@ -318,4 +320,29 @@ test("dynamic criteria read field sources, prefer false, and hard predicates", (
   assert.equal(fail.hardPass, false);
   assert.ok(fail.hardFailures.some((failure) => failure.includes("Price")));
   assert.ok(fail.hardFailures.some((failure) => failure.includes("Damp")));
+});
+
+test("field criteria resolve values from specs and parse ranges", () => {
+  const brief = makeBrief({
+    criteria: [
+      {
+        key: "ram",
+        label: "RAM",
+        weight: 1,
+        kind: "number",
+        normalizer: { type: "higher-is-better", max: 64 },
+        source: { type: "field", field: "ram_gb" },
+        origin: "explicit",
+        hard: { op: "gte", value: 16 },
+      },
+    ],
+  });
+  const result = scoreListing(
+    brief,
+    facts(fact("memory", "16 to 31 GB")),
+  );
+  assert.equal(result.hardPass, true);
+  assert.equal(result.coverage, 1);
+  assert.equal(result.gaps.length, 0);
+  assert.equal(normalizeValue({ type: "higher-is-better", max: 64 }, "16 to 31 GB"), 0.25);
 });

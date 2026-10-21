@@ -144,6 +144,8 @@ criteria:
     source: { type: text, prompt: "Is the home described as quiet?" }
     origin: explicit
 unknown_policy: flag          # flag | penalize | investigate
+seeds: []                     # optional; collect these URLs directly
+queries: []                   # optional; extra searches
 sources:
   web: open                   # open | structured-only | off
   allow: [trademe]            # optional; source ids or hosts
@@ -188,7 +190,9 @@ Rules:
 
 ## 8. Evidence model
 
-A listing is a set of claims, each with provenance:
+A listing is a set of claims, each with provenance. Arbitrary attributes are stored as a
+flattened `specs` map (ADR 0021); field criteria resolve exact keys, then unit aliases, then a
+conservative fuzzy match.
 
 | field | meaning |
 | --- | --- |
@@ -204,7 +208,8 @@ extracted evidence for the same key.
 
 Criteria determine where evidence comes from:
 
-- `field` reads the structured field directly (`field: rent`).
+- `field` reads the structured field directly (`field: rent`) or a flattened spec
+  (`field: ram_gb` resolving to `memory`).
 - `text` extracts the criterion from the listing description into the criterion key
   (`source_ref: text:description`).
 - `image` extracts the criterion from photos (`source_ref: sha256:…`).
@@ -242,7 +247,11 @@ coverage = Σ(w_c for known c) / Σ(w_c for all c)
 
 ## 10. Feedback protocol
 
-Every incoming message is classified into exactly one action (ADR 0007):
+Every incoming message is classified into exactly one action (ADR 0007). A schema-constrained
+model call interprets the message into a `BriefDelta`; the regex parser in
+`feedback/interpret.ts` is the fallback when the model is unavailable or understands nothing
+(ADR 0020). The delta can change weights, criteria, hard limits, source scope, seeds, and
+queries.
 
 | Action | Trigger | Work |
 | --- | --- | --- |

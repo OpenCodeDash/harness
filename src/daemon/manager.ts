@@ -9,7 +9,8 @@ import {
   serializeBrief,
 } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
-import { applyFeedback } from "../feedback/interpret.ts";
+import { applyFeedbackWithInterpreter } from "../feedback/model.ts";
+import type { FeedbackInterpreter } from "../feedback/model.ts";
 import { CampaignStore } from "../campaign/store.ts";
 import { isTie } from "../scoring/score.ts";
 import {
@@ -54,6 +55,7 @@ export interface ManagerOptions {
   root: string;
   providers: ManagerProviders;
   compileBrief: (prompt: string) => Promise<Brief>;
+  feedbackInterpreter?: FeedbackInterpreter;
   registryPath?: string;
   maxConcurrent?: number;
   visitDetails?: boolean;
@@ -282,18 +284,22 @@ export class CampaignManager {
     runtime.paused = false;
   }
 
-  feedback(
+  async feedback(
     id: string,
     text: string,
-  ): {
+  ): Promise<{
     changed: boolean;
     summary: string;
     action: string;
     briefVersion?: number;
     rescored?: number;
-  } {
+  }> {
     const runtime = this.require(id);
-    const applied = applyFeedback(runtime.brief, text);
+    const applied = await applyFeedbackWithInterpreter(
+      runtime.brief,
+      text,
+      this.options.feedbackInterpreter,
+    );
     const feedback = runtime.store.addFeedback(
       text,
       applied.delta.action,

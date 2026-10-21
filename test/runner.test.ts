@@ -677,3 +677,74 @@ test("results that no source accepts stop with no-listing-pages", async () => {
     store.close();
   }
 });
+
+test("provided seeds bypass discovery and are collected directly", async () => {
+  const store = CampaignStore.open(":memory:");
+  const seed = "https://shop.test/products/1";
+  const search = new FakeSearch([]);
+  const planner = new FakePlanner([{ query: "should not run" }]);
+  const browser = new FakeBrowser((url) =>
+    url === seed ? [item("1", seed, 600)] : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search, planner, visitDetails: false },
+      { brief: makeBrief({ seeds: [seed] }) },
+    );
+    assert.equal(search.queries.length, 0);
+    assert.equal(summary.discovered, 1);
+    assert.equal(summary.collected, 1);
+    assert.ok(summary.warnings.length === 0 || !summary.warnings.some((w) => w.includes("0 results")));
+  } finally {
+    store.close();
+  }
+});
+
+test("specs are flattened into evidence and satisfy field criteria", async () => {
+  const store = CampaignStore.open(":memory:");
+  const seed = "https://shop.test/products/1";
+  const base = item("1", seed, 600);
+  const browser = new FakeBrowser((url) =>
+    url === seed
+      ? [
+          {
+            ...base,
+            fields: {
+              ...base.fields,
+              specs: { memory: "16 to 31 GB", brand: "Apple" },
+            },
+          },
+        ]
+      : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch([]), visitDetails: false },
+      {
+        brief: makeBrief({
+          seeds: [seed],
+          criteria: [
+            {
+              key: "ram",
+              label: "RAM",
+              weight: 1,
+              kind: "number",
+              normalizer: { type: "higher-is-better", max: 64 },
+              source: { type: "field", field: "ram_gb" },
+              origin: "explicit",
+              hard: { op: "gte", value: 16 },
+            },
+          ],
+        }),
+      },
+    );
+    assert.equal(summary.collected, 1);
+    assert.equal(summary.hardPass, 1);
+    const listing = store.findListing("jsonld", "1")!;
+    const keys = store.listEvidence(listing.id).map((entry) => entry.key);
+    assert.ok(keys.includes("memory"));
+    assert.ok(keys.includes("specs"));
+  } finally {
+    store.close();
+  }
+});
