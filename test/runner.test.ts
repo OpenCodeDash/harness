@@ -55,9 +55,18 @@ class FakeBrowser implements BrowserProvider {
 }
 
 class FakeSearch implements SearchProvider {
+  queries: string[] = [];
   constructor(private readonly urls: string[]) {}
-  async search() {
+  async search(query: string) {
+    this.queries.push(query);
     return this.urls.map((url) => ({ title: "", url, snippet: "" }));
+  }
+}
+
+class FakePlanner {
+  constructor(private readonly queries: Array<{ query: string; site?: string }>) {}
+  async plan() {
+    return this.queries;
   }
 }
 
@@ -604,6 +613,66 @@ test("a page whose items all point at itself is still an index", async () => {
     assert.equal(summary.collected, 2);
     assert.equal(store.listListings().length, 2);
     assert.equal(store.findListing("jsonld", index), null);
+  } finally {
+    store.close();
+  }
+});
+
+test("planner queries are used and site hints become site: operators", async () => {
+  const store = CampaignStore.open(":memory:");
+  const search = new FakeSearch([SEARCH_URL]);
+  const planner = new FakePlanner([
+    { query: "m2 macbook auckland", site: "trademe.co.nz" },
+  ]);
+  const browser = new FakeBrowser((url) =>
+    url === SEARCH_URL ? [item("1", LISTING_1, 600)] : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search, planner, visitDetails: false },
+      { brief: makeBrief() },
+    );
+    assert.equal(search.queries.length, 1);
+    assert.equal(search.queries[0], "site:trademe.co.nz m2 macbook auckland");
+    assert.equal(summary.discovered, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test("all-empty search stops with search-unavailable", async () => {
+  const store = CampaignStore.open(":memory:");
+  const search = new FakeSearch([]);
+  const planner = new FakePlanner([{ query: "m2 macbook auckland" }]);
+  try {
+    const summary = await runCampaign(
+      { store, browser: new FakeBrowser(() => null), search, planner },
+      { brief: makeBrief() },
+    );
+    assert.equal(summary.stopReason, "search-unavailable");
+    assert.equal(summary.discovered, 0);
+    assert.ok(summary.warnings.some((w) => w.includes("0 results")));
+  } finally {
+    store.close();
+  }
+});
+
+test("results that no source accepts stop with no-listing-pages", async () => {
+  const store = CampaignStore.open(":memory:");
+  const search = new FakeSearch(["https://shop.test/collections/x"]);
+  const planner = new FakePlanner([{ query: "m2 macbook auckland" }]);
+  try {
+    const summary = await runCampaign(
+      { store, browser: new FakeBrowser(() => null), search, planner },
+      {
+        brief: makeBrief({
+          sources: { web: "off", allow: ["trademe"] },
+        }),
+      },
+    );
+    assert.equal(summary.stopReason, "no-listing-pages");
+    assert.equal(summary.discovered, 0);
+    assert.ok(summary.warnings.some((w) => w.includes("none were accepted")));
   } finally {
     store.close();
   }

@@ -77,7 +77,7 @@ test("only registered sources contribute queries", () => {
   assert.ok(withSource.some((q) => q.startsWith("site:trademe.co.nz ")));
 });
 
-test("source templates are filtered by domain and required values", () => {
+test("source templates are filtered by required values", () => {
   const propertyBrief = withDomain("rental", "property", {
     hard: { areas: ["Wellington"], bedrooms: { min: 2, max: 2 } },
   });
@@ -119,8 +119,8 @@ test("source integrations own their query templates", () => {
     (trademeRecipe.discovery?.queryTemplates ?? []).some(
       (template) =>
         typeof template !== "string" &&
-        template.domains?.includes("cars") === true &&
-        template.site === "trademe.co.nz/motors",
+        template.site === "trademe.co.nz" &&
+        template.template.includes("{brand}"),
     ),
   );
   assert.ok(
@@ -177,9 +177,7 @@ test("cross-domain queries render prompt, price, and field values", () => {
 
   assert.ok(queries.some((q) => q.includes("15000")));
   assert.ok(queries.some((q) => q.includes("Toyota Corolla")));
-  assert.ok(
-    queries.some((q) => q.startsWith("site:trademe.co.nz/motors ")),
-  );
+  assert.ok(queries.some((q) => q.startsWith("site:trademe.co.nz ")));
 
   const laptopBrief = withDomain("laptop under 2000", "laptops", {
     hard: { areas: ["Wellington"] },

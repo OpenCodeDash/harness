@@ -1,7 +1,5 @@
 export interface SourceQueryTemplate {
   template: string;
-  /** Domain hints this template fits; omitted applies to all. */
-  domains?: string[];
   /** Placeholders that must be non-empty for the template to render. */
   requires?: string[];
   /** Optional search-engine site restriction, e.g. "trademe.co.nz". */

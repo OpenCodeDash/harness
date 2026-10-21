@@ -138,19 +138,19 @@ export function buildDiscoveryQueries(
       for (const raw of source.discovery?.queryTemplates ?? []) {
         const template = normaliseTemplate(raw);
         if (
-          template.domains?.length &&
-          !template.domains.includes(brief.domain)
-        ) {
-          continue;
-        }
-        if (
           template.requires?.some((key) => !values[key]?.trim())
         ) {
           continue;
         }
         let query = renderTemplate(template.template, values);
         if (template.site && !/site:/i.test(query)) {
-          query = `site:${template.site} ${query}`.trim();
+          const host = template.site
+            .trim()
+            .toLowerCase()
+            .replace(/^[a-z]+:\/\//, "")
+            .replace(/^www\./, "")
+            .split(/[/?#]/)[0];
+          if (host) query = `site:${host} ${query}`.trim();
         }
         if (query.length >= 3) queries.add(query);
       }

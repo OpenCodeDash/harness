@@ -4,6 +4,7 @@ import { compileBrief } from "../brief/brief.ts";
 import { ResponsesBriefExtractor } from "../brief/extractor.ts";
 import { McpBrowser } from "../browser/mcp.ts";
 import { connectSearxngMcp } from "../discovery/searxng.ts";
+import { ResponsesQueryPlanner } from "../discovery/planner.ts";
 import { NominatimGeocoder, MemoryGeoCache, OpenRouteServiceRouter } from "../geo/providers.ts";
 import { CachedGeoService } from "../geo/service.ts";
 import { ResponsesClient } from "../vision/responses.ts";
@@ -39,6 +40,7 @@ export async function startDaemon(): Promise<void> {
     providers: {
       browser,
       search: search.provider,
+      planner: new ResponsesQueryPlanner(router, model),
       vision: process.env.HARNESS_NO_VISION
         ? undefined
         : {
