@@ -1,4 +1,4 @@
-import { applyBriefDelta } from "../brief/brief.ts";
+import { applyBriefDelta, resolveKey } from "../brief/brief.ts";
 import type {
   Brief,
   BriefDelta,
@@ -6,9 +6,8 @@ import type {
   FeedbackAction,
   HardConstraints,
 } from "../brief/types.ts";
-import type { DomainPack } from "../domain/types.ts";
-import { findField, findImageFeature } from "../domain/types.ts";
-import { resolveKey } from "../brief/brief.ts";
+import type { CriterionSpec } from "../domain/types.ts";
+import { findField } from "../domain/fields.ts";
 
 export interface Interpretation {
   delta: BriefDelta;
@@ -25,25 +24,19 @@ const termRegex = (term: string) =>
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-function labelFor(pack: DomainPack, key: string): string {
-  return (
-    pack.defaultCriteria.find((criterion) => criterion.key === key)?.label ??
-    findField(pack, key)?.label ??
-    findImageFeature(pack, key)?.label ??
-    key
-  );
-}
-
-function termsForKey(pack: DomainPack, key: string): string[] {
-  const source = findField(pack, key) ?? findImageFeature(pack, key);
-  const criterion = pack.defaultCriteria.find((item) => item.key === key);
-  const terms = [
-    key,
-    criterion?.label,
-    source?.label,
-    ...(source?.aliases ?? []),
-  ].filter((term): term is string => Boolean(term));
-  return [...new Set(terms.map((term) => term.toLowerCase()))];
+function termsForCriterion(criterion: CriterionSpec): string[] {
+  const terms = [criterion.key, criterion.label];
+  if (criterion.source.type === "field") {
+    const field = findField(criterion.source.field);
+    if (field) terms.push(field.label, ...(field.aliases ?? []));
+  }
+  return [
+    ...new Set(
+      terms
+        .map((term) => term.trim().toLowerCase())
+        .filter((term) => term.length > 0),
+    ),
+  ];
 }
 
 function mention(
@@ -63,20 +56,13 @@ function mention(
   return best;
 }
 
-export function interpretFeedback(
-  text: string,
-  brief: Brief,
-  pack: DomainPack,
-): Interpretation {
+export function interpretFeedback(text: string, brief: Brief): Interpretation {
   const lower = text.toLowerCase();
   const summary: string[] = [];
   const setWeights: Record<string, number> = {};
 
   for (const criterion of brief.criteria) {
-    const found = mention(text, [
-      ...termsForKey(pack, criterion.key),
-      criterion.label.toLowerCase(),
-    ]);
+    const found = mention(text, termsForCriterion(criterion));
     if (!found) continue;
     const window = found.window;
     let weight: number | null = null;
@@ -161,67 +147,37 @@ export function interpretFeedback(
 
   const required: Record<string, unknown> = {};
   for (const match of lower.matchAll(/must have\s+(?:a\s+|an\s+)?([a-z ]{3,30})/g)) {
-    const key = resolveKey(pack, match[1]!.trim());
+    const key = resolveKey(match[1]!.trim());
     if (key) {
       required[key] = true;
-      summary.push(`${labelFor(pack, key)}=yes`);
+      const label = findField(key)?.label ?? key;
+      summary.push(`${label}=yes`);
     }
   }
   for (const match of lower.matchAll(/(?:no|without)\s+(?:a\s+|an\s+)?([a-z ]{3,30})/g)) {
     const phrase = match[1]!.trim();
     if (/^more than/.test(phrase)) continue;
-    const key = resolveKey(pack, phrase);
+    const key = resolveKey(phrase);
     if (key) {
       required[key] = false;
-      summary.push(`${labelFor(pack, key)}=no`);
+      const label = findField(key)?.label ?? key;
+      summary.push(`${label}=no`);
     }
-  }
-
-  const typeField = findField(pack, "property_type");
-  let propertyType: string | undefined;
-  if (typeField?.options && /(missed|include|also|only|want|prefer|look)/.test(lower)) {
-    for (const option of typeField.options) {
-      if (new RegExp(`\\b${escape(option)}s?\\b`, "i").test(lower)) {
-        propertyType = option;
-        summary.push(`property_type=${option}`);
-        break;
-      }
-    }
-  }
-
-  const features = new Set<string>();
-  if (/(check|look|inspect|detect|find|see|photo|image)/.test(lower)) {
-    for (const feature of pack.imageFeatures) {
-      const terms = [
-        feature.key,
-        feature.label,
-        ...(feature.aliases ?? []),
-      ];
-      if (terms.some((term) => termRegex(term).test(text))) {
-        features.add(feature.key);
-      }
-    }
-  }
-  for (const feature of features) {
-    summary.push(`re-extract ${labelFor(pack, feature).toLowerCase()}`);
   }
 
   let action: FeedbackAction = "re-score";
-  if (addAreas.length || propertyType) action = "re-search";
-  else if (features.size) action = "re-extract";
+  if (addAreas.length) action = "re-search";
 
   const hard: Partial<HardConstraints> = {};
   if (rentMax !== undefined) hard.rentMax = rentMax;
   if (bedrooms) hard.bedrooms = bedrooms;
   if (Object.keys(required).length) hard.required = required;
-  if (propertyType) hard.required = { ...(hard.required ?? {}), property_type: propertyType };
 
   const delta: BriefDelta = { action };
   if (Object.keys(setWeights).length) delta.setWeights = setWeights;
   if (commute) delta.commute = commute;
   if (Object.keys(hard).length) delta.hard = hard;
   if (addAreas.length) delta.addAreas = [...new Set(addAreas)];
-  if (features.size) delta.features = [...features];
 
   if (summary.length === 0) {
     return {
@@ -243,14 +199,13 @@ export function interpretFeedback(
 export function applyFeedback(
   brief: Brief,
   text: string,
-  pack: DomainPack,
 ): Interpretation & { brief: Brief } {
-  const interpretation = interpretFeedback(text, brief, pack);
+  const interpretation = interpretFeedback(text, brief);
   if (!interpretation.changed) {
     return { ...interpretation, brief };
   }
   return {
     ...interpretation,
-    brief: applyBriefDelta(brief, interpretation.delta, pack),
+    brief: applyBriefDelta(brief, interpretation.delta),
   };
 }

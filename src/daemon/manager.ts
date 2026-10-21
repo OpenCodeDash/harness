@@ -11,8 +11,6 @@ import {
 import type { Brief } from "../brief/types.ts";
 import { applyFeedback } from "../feedback/interpret.ts";
 import { CampaignStore } from "../campaign/store.ts";
-import { getPack } from "../domain/index.ts";
-import type { DomainPack } from "../domain/types.ts";
 import { isTie } from "../scoring/score.ts";
 import {
   runCampaign,
@@ -31,7 +29,6 @@ import { CampaignRegistry, type CampaignRecord } from "./registry.ts";
 
 export interface CampaignRuntime {
   record: CampaignRecord;
-  pack: DomainPack;
   store: CampaignStore;
   brief: Brief;
   paused: boolean;
@@ -54,7 +51,7 @@ export interface ManagerProviders {
 export interface ManagerOptions {
   root: string;
   providers: ManagerProviders;
-  compileBrief: (prompt: string, pack: DomainPack) => Promise<Brief>;
+  compileBrief: (prompt: string) => Promise<Brief>;
   registryPath?: string;
   maxConcurrent?: number;
   visitDetails?: boolean;
@@ -65,7 +62,6 @@ export interface ManagerOptions {
 export interface CreateCampaignInput {
   prompt?: string;
   brief?: string | Record<string, unknown>;
-  pack?: string;
   name?: string;
 }
 
@@ -76,7 +72,6 @@ export interface CampaignStatus {
   name: string;
   prompt: string;
   domain: string;
-  pack: string;
   status: string;
   paused: boolean;
   stopped: boolean;
@@ -140,11 +135,9 @@ export class CampaignManager {
         const store = CampaignStore.open(join(record.dir, "campaign.db"));
         const latest = store.latestBrief();
         if (!latest) throw new Error("campaign has no brief");
-        const pack = getPack(record.pack);
-        const brief = parseBrief(latest.yaml, pack);
+        const brief = parseBrief(latest.yaml);
         const runtime: CampaignRuntime = {
           record,
-          pack,
           store,
           brief,
           paused: false,
@@ -154,7 +147,7 @@ export class CampaignManager {
         };
         const run = store.latestRun();
         if (run) {
-          const scored = scoreCampaign(store, brief, pack);
+          const scored = scoreCampaign(store, brief);
           runtime.runId = run.id;
           runtime.lastSummary = {
             runId: run.id,
@@ -201,7 +194,6 @@ export class CampaignManager {
       name: runtime.record.name,
       prompt: runtime.record.prompt,
       domain: runtime.record.domain,
-      pack: runtime.record.pack,
       status: runtime.running
         ? "running"
         : runtime.stopped
@@ -218,22 +210,17 @@ export class CampaignManager {
     };
   }
 
-  async preview(input: {
-    prompt: string;
-    pack?: string;
-  }): Promise<{ brief: Brief; echo: string }> {
-    const pack = getPack(input.pack ?? "property");
-    const brief = await this.options.compileBrief(input.prompt, pack);
+  async preview(input: { prompt: string }): Promise<{ brief: Brief; echo: string }> {
+    const brief = await this.options.compileBrief(input.prompt);
     return { brief, echo: echoBrief(brief) };
   }
 
   async create(input: CreateCampaignInput): Promise<CampaignRuntime> {
-    const pack = getPack(input.pack ?? "property");
     let brief: Brief;
     if (input.brief) {
-      brief = parseBriefData(input.brief, pack);
+      brief = parseBriefData(input.brief);
     } else if (input.prompt) {
-      brief = await this.options.compileBrief(input.prompt, pack);
+      brief = await this.options.compileBrief(input.prompt);
     } else {
       throw new Error("prompt or brief is required");
     }
@@ -251,13 +238,11 @@ export class CampaignManager {
       name: input.name ?? (brief.prompt.slice(0, 80) || id),
       prompt: brief.prompt,
       domain: brief.domain,
-      pack: pack.id,
       dir,
     });
 
     const runtime: CampaignRuntime = {
       record,
-      pack,
       store,
       brief,
       paused: false,
@@ -305,7 +290,7 @@ export class CampaignManager {
     rescored?: number;
   } {
     const runtime = this.require(id);
-    const applied = applyFeedback(runtime.brief, text, runtime.pack);
+    const applied = applyFeedback(runtime.brief, text);
     const feedback = runtime.store.addFeedback(
       text,
       applied.delta.action,
@@ -325,7 +310,7 @@ export class CampaignManager {
       serializeBrief(runtime.brief),
       runtime.brief.prompt,
     );
-    const scored = scoreCampaign(runtime.store, runtime.brief, runtime.pack);
+    const scored = scoreCampaign(runtime.store, runtime.brief);
     persistScores(runtime.store, version.id, scored.items);
     runtime.store.markFeedbackApplied(feedback.id);
     if (runtime.lastSummary) {
@@ -359,7 +344,7 @@ export class CampaignManager {
     rows: ResultRow[];
   } {
     const runtime = this.require(id);
-    const scored = scoreCampaign(runtime.store, runtime.brief, runtime.pack);
+    const scored = scoreCampaign(runtime.store, runtime.brief);
     const sorted = [...scored.items].sort(
       (a, b) =>
         Number(b.result.hardPass) - Number(a.result.hardPass) ||
@@ -418,7 +403,7 @@ export class CampaignManager {
 
   exportCsv(id: string): string {
     const runtime = this.require(id);
-    return scoreCampaign(runtime.store, runtime.brief, runtime.pack).csv;
+    return scoreCampaign(runtime.store, runtime.brief).csv;
   }
 
   async waitForIdle(): Promise<void> {
@@ -446,7 +431,6 @@ export class CampaignManager {
       try {
         const summary = await runCampaign(this.depsFor(runtime), {
           brief: runtime.brief,
-          pack: runtime.pack,
           resumeRunId,
         });
         runtime.runId = summary.runId;

@@ -3,18 +3,27 @@ import { test } from "node:test";
 import { briefFromExtraction, serializeBrief } from "../src/brief/brief.ts";
 import { CampaignStore } from "../src/campaign/store.ts";
 import { createControlServer, type ControlState } from "../src/control/api.ts";
-import { propertyPack } from "../src/domain/property.ts";
 
 async function withServer(
   setup: (state: ControlState) => void,
   run: (baseUrl: string, state: ControlState) => Promise<void>,
 ): Promise<void> {
   const store = CampaignStore.open(":memory:");
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = briefFromExtraction("rental", {
     hard: { rent_max: 650, bedrooms: { min: 2 }, areas: ["Wellington"] },
-    soft: [{ key: "parking", weight: 0.5 }],
+    criteria: [
+      {
+        key: "parking",
+        label: "Parking",
+        weight: 0.5,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "parking" },
+        origin: "explicit",
+      },
+    ],
   });
-  const state: ControlState = { store, pack: propertyPack, brief, paused: false };
+  const state: ControlState = { store, brief, paused: false };
   store.saveBrief(serializeBrief(brief), brief.prompt);
   setup(state);
   const server = createControlServer(state);

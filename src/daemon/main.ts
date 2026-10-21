@@ -67,8 +67,8 @@ export async function startDaemon(): Promise<void> {
           })
         : undefined,
     },
-    compileBrief: (prompt, pack) =>
-      compileBrief(prompt, pack, new ResponsesBriefExtractor(router, model)),
+    compileBrief: (prompt) =>
+      compileBrief(prompt, new ResponsesBriefExtractor(router, model)),
   });
 
   await manager.open();

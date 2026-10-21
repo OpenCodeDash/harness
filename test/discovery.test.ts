@@ -10,15 +10,20 @@ import {
   parseSearchResults,
   SearxngMcpProvider,
 } from "../src/discovery/searxng.ts";
-import { propertyPack } from "../src/domain/property.ts";
-import { carsPack } from "../src/domain/cars.ts";
-import { laptopsPack } from "../src/domain/laptops.ts";
-import { listPacks } from "../src/domain/index.ts";
+import { FIELDS } from "../src/domain/fields.ts";
 import {
   jsonLdRecipe,
   listRecipes,
   trademeRecipe,
 } from "../src/sources/index.ts";
+
+function withDomain(
+  prompt: string,
+  domain: string,
+  raw: Record<string, unknown>,
+) {
+  return { ...briefFromExtraction(prompt, raw), domain };
+}
 
 test("renders templates and collapses empty placeholders", () => {
   assert.equal(
@@ -42,7 +47,7 @@ test("renders templates and collapses empty placeholders", () => {
 });
 
 test("builds one query set per area from registered sources", () => {
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = withDomain("rental", "property", {
     hard: {
       rent_max: 650,
       bedrooms: { min: 2, max: 3 },
@@ -61,7 +66,7 @@ test("builds one query set per area from registered sources", () => {
 });
 
 test("only registered sources contribute queries", () => {
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = withDomain("rental", "property", {
     hard: { areas: ["Wellington"] },
   });
   const without = buildDiscoveryQueries(brief, [jsonLdRecipe]);
@@ -73,7 +78,7 @@ test("only registered sources contribute queries", () => {
 });
 
 test("source templates are filtered by domain and required values", () => {
-  const propertyBrief = briefFromExtraction("rental", propertyPack, {
+  const propertyBrief = withDomain("rental", "property", {
     hard: { areas: ["Wellington"], bedrooms: { min: 2, max: 2 } },
   });
   const propertyQueries = buildDiscoveryQueries(propertyBrief, listRecipes());
@@ -82,7 +87,7 @@ test("source templates are filtered by domain and required values", () => {
   assert.ok(propertyQueries.every((q) => !q.includes("/computers")));
 
   const genericBrief = {
-    ...briefFromExtraction("car or laptop", propertyPack, {}),
+    ...withDomain("car or laptop", "generic", {}),
     domain: "generic",
   };
   const genericQueries = buildDiscoveryQueries(genericBrief, listRecipes());
@@ -102,7 +107,7 @@ test("source templates are filtered by domain and required values", () => {
       ],
     },
   };
-  const noArea = briefFromExtraction("find me", propertyPack, {
+  const noArea = withDomain("find me", "property", {
     hard: {},
   });
   assert.deepEqual(buildDiscoveryQueries(noArea, [fake]), ["always find me"]);
@@ -135,9 +140,7 @@ test("source query templates only use known placeholders", () => {
     "price",
     "property_type",
   ]);
-  for (const pack of listPacks()) {
-    for (const field of pack.fields) known.add(field.key);
-  }
+  for (const field of FIELDS) known.add(field.key);
   for (const recipe of listRecipes()) {
     for (const raw of recipe.discovery?.queryTemplates ?? []) {
       const template = typeof raw === "string" ? raw : raw.template;
@@ -152,7 +155,7 @@ test("source query templates only use known placeholders", () => {
 });
 
 test("cross-domain queries render prompt, price, and field values", () => {
-  const brief = briefFromExtraction("used Toyota Corolla under 15000 in Auckland", carsPack, {
+  const brief = withDomain("used Toyota Corolla under 15000 in Auckland", "cars", {
     hard: {
       areas: ["Auckland"],
       required: { brand: "Toyota", model: "Corolla" },
@@ -178,7 +181,7 @@ test("cross-domain queries render prompt, price, and field values", () => {
     queries.some((q) => q.startsWith("site:trademe.co.nz/motors ")),
   );
 
-  const laptopBrief = briefFromExtraction("laptop under 2000", laptopsPack, {
+  const laptopBrief = withDomain("laptop under 2000", "laptops", {
     hard: { areas: ["Wellington"] },
   });
   assert.ok(

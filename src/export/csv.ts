@@ -1,6 +1,5 @@
 import type { Brief } from "../brief/types.ts";
 import type { Listing } from "../campaign/types.ts";
-import type { DomainPack } from "../domain/types.ts";
 import { criterionFactKey } from "../domain/types.ts";
 import type { Fact, ScoreResult } from "../scoring/score.ts";
 import { isTie } from "../scoring/score.ts";
@@ -91,7 +90,6 @@ function rankItems(items: ExportItem[]): Array<number | null> {
 export function buildExportTable(
   items: ExportItem[],
   brief: Brief,
-  pack: DomainPack,
 ): ExportTable {
   const criteria = brief.criteria;
 

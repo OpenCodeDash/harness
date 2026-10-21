@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
-import type { DomainPack, ImageFeatureDef } from "../domain/types.ts";
+import type { ImageFeatureDef } from "../domain/types.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
 import type { SearchProvider } from "../discovery/searxng.ts";
 import type { CachedGeoService } from "../geo/service.ts";
@@ -116,7 +116,6 @@ export interface RunnerDeps {
 
 export interface CampaignOptions {
   brief: Brief;
-  pack: DomainPack;
   briefVersionId?: number;
   resumeRunId?: number;
   seedUrls?: string[];
@@ -150,7 +149,7 @@ export async function runCampaign(
   options: CampaignOptions,
 ): Promise<CampaignSummary> {
   const store = deps.store;
-  const { brief, pack } = options;
+  const { brief } = options;
   const briefVersionId =
     options.briefVersionId ??
     store.saveBrief(serializeBrief(brief), brief.prompt).id;
@@ -365,7 +364,7 @@ export async function runCampaign(
 
   if (stopReason === "complete" && progress?.stage === "text") {
     await addDerivedFacts(deps, brief, errors, log);
-    await addTextFacts(deps, brief, pack, store, progress, checkpoint, errors, {
+    await addTextFacts(deps, brief, store, progress, checkpoint, errors, {
       paused,
       stopped,
       log,
@@ -397,7 +396,7 @@ export async function runCampaign(
   }
 
   if (stopReason === "complete" && progress?.stage === "vision") {
-    await addVision(deps, brief, pack, progress, checkpoint, errors, {
+    await addVision(deps, brief, progress, checkpoint, errors, {
       spend,
       photosPerListing,
       paused,
@@ -430,7 +429,7 @@ export async function runCampaign(
     });
   }
 
-  const scored = scoreCampaign(store, brief, pack);
+  const scored = scoreCampaign(store, brief);
   persistScores(store, briefVersionId, scored.items);
   emit({
     type: "stage",
@@ -708,7 +707,6 @@ async function addDerivedFacts(
 async function addTextFacts(
   deps: RunnerDeps,
   brief: Brief,
-  pack: DomainPack,
   store: CampaignStore,
   progress: Progress | null,
   checkpoint: (next: Progress) => void,
@@ -737,7 +735,7 @@ async function addTextFacts(
     .listListings()
     .map((listing) => {
       const facts = selectFacts(store.listEvidence(listing.id));
-      return { listing, facts, result: scoreListing(brief, pack, facts) };
+      return { listing, facts, result: scoreListing(brief, facts) };
     })
     .filter(
       (candidate) =>
@@ -810,7 +808,6 @@ async function addTextFacts(
 async function addVision(
   deps: RunnerDeps,
   brief: Brief,
-  pack: DomainPack,
   progress: Progress | null,
   checkpoint: (next: Progress) => void,
   errors: string[],
@@ -852,7 +849,7 @@ async function addVision(
     .listListings()
     .map((listing) => {
       const facts = selectFacts(deps.store.listEvidence(listing.id));
-      return { listing, facts, result: scoreListing(brief, pack, facts) };
+      return { listing, facts, result: scoreListing(brief, facts) };
     })
     .sort(
       (a, b) =>

@@ -6,7 +6,6 @@ import {
   ResponsesBriefExtractor,
 } from "../src/brief/extractor.ts";
 import { parseArgs } from "../src/cli.ts";
-import { propertyPack } from "../src/domain/property.ts";
 import type { ResponsesClient } from "../src/vision/responses.ts";
 
 test("brief extractor strips nulls and turns required pairs into a map", async () => {
@@ -54,7 +53,6 @@ test("brief extractor strips nulls and turns required pairs into a map", async (
   const extractor = new ResponsesBriefExtractor(client, "model");
   const raw = (await extractor.extract({
     prompt: "2 bed under 650 near work",
-    pack: propertyPack,
   })) as {
     hard: { required: unknown; bedrooms: { min: number; max?: number }; areas?: unknown };
     anchors: { work?: unknown };
@@ -75,7 +73,7 @@ test("compiled briefs from the extractor flow into the compiler", async () => {
             rent_max: 650,
             bedrooms: { min: 2, max: 3 },
             areas: ["Wellington"],
-            required: [{ key: "carpark", value: true }],
+            required: [{ key: "parking", value: true }],
           },
           anchors: {
             work: { address: "1 Lambton Quay", lat: null, lon: null },
@@ -110,7 +108,6 @@ test("compiled briefs from the extractor flow into the compiler", async () => {
 
   const brief = await compileBrief(
     "2-3 bed under 650 near work, want a carpark",
-    propertyPack,
     new ResponsesBriefExtractor(client, "model"),
   );
 
@@ -125,10 +122,10 @@ test("compiled briefs from the extractor flow into the compiler", async () => {
   );
 });
 
-test("brief prompt names the pack criteria", () => {
-  const prompt = buildBriefPrompt("find a rental", propertyPack);
-  assert.match(prompt, /parking \(Parking, boolean\)/);
-  assert.match(prompt, /sunlight:/);
+test("brief prompt lists the core vocabulary", () => {
+  const prompt = buildBriefPrompt("find a rental");
+  assert.match(prompt, /price \(Price, number\)/);
+  assert.match(prompt, /condition \(Condition, enum\)/);
   assert.match(prompt, /Do not pad/);
 });
 
@@ -137,7 +134,6 @@ test("CLI argument parsing applies defaults and flags", () => {
   assert.equal(base.db, "campaigns/default/campaign.db");
   assert.equal(base.exportPath, "campaigns/default/exports/latest.csv");
   assert.equal(base.mediaDir, "campaigns/default/media");
-  assert.equal(base.pack, "property");
   assert.equal(base.now, false);
   assert.equal(base.waitSeconds, 60);
 
@@ -190,7 +186,6 @@ test("brief extractor drops incomplete commute and work anchors", async () => {
 
   const raw = (await new ResponsesBriefExtractor(client, "m").extract({
     prompt: "cheap rental",
-    pack: propertyPack,
   })) as { anchors: { work?: unknown; commute?: unknown }; hard: { bedrooms?: unknown } };
 
   assert.equal(raw.anchors.work, undefined);

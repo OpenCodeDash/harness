@@ -7,7 +7,6 @@ export interface CampaignRecord {
   name: string;
   prompt: string;
   domain: string;
-  pack: string;
   dir: string;
   createdAt: string;
 }
@@ -27,26 +26,35 @@ export class CampaignRegistry {
         name TEXT NOT NULL,
         prompt TEXT NOT NULL,
         domain TEXT NOT NULL,
-        pack TEXT NOT NULL,
         dir TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
     `);
+    this.dropLegacyPackColumn();
+  }
+
+  /** Older registries selected a domain preset; that concept is gone. */
+  private dropLegacyPackColumn(): void {
+    const columns = this.db
+      .prepare("PRAGMA table_info(campaign)")
+      .all() as Array<{ name?: unknown }>;
+    if (columns.some((column) => column.name === "pack")) {
+      this.db.exec("ALTER TABLE campaign DROP COLUMN pack;");
+    }
   }
 
   create(input: Omit<CampaignRecord, "createdAt">): CampaignRecord {
     const createdAt = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO campaign (id, name, prompt, domain, pack, dir, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO campaign (id, name, prompt, domain, dir, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
         input.name,
         input.prompt,
         input.domain,
-        input.pack,
         input.dir,
         createdAt,
       );
@@ -78,7 +86,6 @@ function toRecord(row: Row): CampaignRecord {
     name: String(row.name),
     prompt: String(row.prompt),
     domain: String(row.domain),
-    pack: String(row.pack),
     dir: String(row.dir),
     createdAt: String(row.created_at),
   };

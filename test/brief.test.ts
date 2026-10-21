@@ -8,7 +8,6 @@ import {
   serializeBrief,
 } from "../src/brief/brief.ts";
 import type { BriefExtractor } from "../src/brief/brief.ts";
-import { propertyPack } from "../src/domain/property.ts";
 
 const YAML = `
 version: 2
@@ -71,8 +70,8 @@ test("invalid briefs fail loudly", () => {
   assert.throws(() => parseBrief("criteria: [{ key: x, weight: 4 }]"));
 });
 
-test("compiler uses only the criteria it is given, not pack defaults", () => {
-  const brief = briefFromExtraction("find a rental", propertyPack, {
+test("compiler uses only the criteria it is given", () => {
+  const brief = briefFromExtraction("find a rental", {
     hard: { rent_max: 650, bedrooms: { min: 2, max: 3 } },
     criteria: [
       {
@@ -81,7 +80,7 @@ test("compiler uses only the criteria it is given, not pack defaults", () => {
         weight: 0.95,
         kind: "boolean",
         normalizer: { type: "boolean" },
-        source: { type: "field", field: "carpark" },
+        source: { type: "field", field: "parking" },
         origin: "explicit",
       },
       {
@@ -108,7 +107,7 @@ test("compiler uses only the criteria it is given, not pack defaults", () => {
 
   assert.deepEqual(
     brief.criteria.map((criterion) => criterion.key),
-    ["parking", "damp"],
+    ["parking", "bogus", "damp"],
   );
   assert.equal(brief.criteria[0]?.source.type, "field");
   assert.equal(
@@ -117,20 +116,18 @@ test("compiler uses only the criteria it is given, not pack defaults", () => {
       : null,
     "parking",
   );
-  assert.equal(brief.criteria[1]?.origin, "suggested");
+  const damp = brief.criteria.find((criterion) => criterion.key === "damp");
+  assert.equal(damp?.origin, "suggested");
   assert.equal(
-    brief.criteria[1]?.normalizer.type === "boolean"
-      ? brief.criteria[1].normalizer.prefer
-      : null,
+    damp?.normalizer.type === "boolean" ? damp.normalizer.prefer : null,
     false,
   );
-  assert.ok(brief.warnings.some((warning) => warning.includes("nope")));
   assert.ok(!brief.criteria.some((criterion) => criterion.key === "sunlight"));
   assert.ok(brief.assumptions.some((a) => a.includes("image criteria")));
 });
 
-test("sparse extraction falls back to pack suggestions", () => {
-  const brief = briefFromExtraction("find a rental", propertyPack, {});
+test("sparse extraction falls back to core suggestions", () => {
+  const brief = briefFromExtraction("find a rental", {});
   assert.ok(brief.criteria.length > 0);
   assert.ok(brief.criteria.every((criterion) => criterion.origin === "suggested"));
   assert.ok(
@@ -150,9 +147,9 @@ test("compileBrief uses the injected extractor", async () => {
     },
   };
   const { compileBrief } = await import("../src/brief/brief.ts");
-  const brief = await compileBrief("cheap rental", propertyPack, extractor);
+  const brief = await compileBrief("cheap rental", extractor);
   assert.equal(brief.hard.rentMax, 500);
-  assert.equal(brief.criteria.length, propertyPack.defaultCriteria.length - 1);
+  assert.equal(brief.criteria.length, 2);
   assert.equal(
     brief.criteria.some(
       (criterion) =>
@@ -164,7 +161,7 @@ test("compileBrief uses the injected extractor", async () => {
 });
 
 test("echoBrief states hard limits, criteria, commute, and assumptions", () => {
-  const brief = briefFromExtraction("find a rental", propertyPack, {
+  const brief = briefFromExtraction("find a rental", {
     anchors: { commute: { max_minutes: 20, hard: true } },
     hard: { rent_max: 650, bedrooms: { min: 2, max: 3 } },
     criteria: [
@@ -235,7 +232,6 @@ test("applyBriefDelta can add and remove dynamic criteria", () => {
       ],
       removeCriteria: ["sunlight"],
     },
-    propertyPack,
   );
 
   assert.ok(next.criteria.some((criterion) => criterion.key === "mould"));
@@ -247,13 +243,12 @@ test("legacy soft briefs migrate to full criteria", () => {
     `
 hard: { rent_max: 650 }
 soft:
-  - { key: parking, weight: 0.8 }
-  - { key: carpark, weight: 0.9 }
+  - { key: price, weight: 0.8 }
+  - { key: cost, weight: 0.9 }
 `,
-    propertyPack,
   );
   assert.equal(brief.criteria.length, 1);
-  assert.equal(brief.criteria[0]?.key, "parking");
+  assert.equal(brief.criteria[0]?.key, "price");
   assert.equal(brief.criteria[0]?.weight, 0.9);
   assert.equal(brief.criteria[0]?.origin, "explicit");
   assert.equal(brief.criteria[0]?.source.type, "field");
@@ -277,7 +272,7 @@ sources:
 });
 
 test("source scope defaults to open web and is echoed", () => {
-  const open = briefFromExtraction("find a rental", propertyPack, {});
+  const open = briefFromExtraction("find a rental", {});
   assert.deepEqual(open.sources, { web: "open" });
   assert.ok(
     open.assumptions.includes(
@@ -286,7 +281,7 @@ test("source scope defaults to open web and is echoed", () => {
   );
   assert.match(echoBrief(open), /Sources: web open/);
 
-  const restricted = briefFromExtraction("find a rental", propertyPack, {
+  const restricted = briefFromExtraction("find a rental", {
     sources: { allow: ["trademe"], web: "off" },
   });
   assert.deepEqual(restricted.sources, { allow: ["trademe"], web: "off" });
@@ -298,8 +293,8 @@ test("source scope defaults to open web and is echoed", () => {
   assert.match(echoBrief(restricted), /Sources: web off · allow: trademe/);
 });
 
-test("pack field validation includes the generic vocabulary", () => {
-  const brief = briefFromExtraction("anything under 1000", propertyPack, {
+test("field validation includes the core vocabulary", () => {
+  const brief = briefFromExtraction("anything under 1000", {
     criteria: [
       {
         key: "price",
@@ -321,11 +316,8 @@ test("pack field validation includes the generic vocabulary", () => {
   );
 });
 
-test("an unknown pack compiles with the generic vocabulary", async () => {
-  const { getPack } = await import("../src/domain/index.ts");
-  const generic = getPack("spaceships");
-  assert.equal(generic.id, "generic");
-  const brief = briefFromExtraction("find something", generic, {});
+test("a prompt compiles with the core vocabulary and no preset", () => {
+  const brief = briefFromExtraction("find something", {});
   assert.equal(brief.domain, "generic");
   assert.ok(brief.criteria.some((criterion) => criterion.key === "price"));
 });

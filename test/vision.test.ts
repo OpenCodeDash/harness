@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { propertyPack } from "../src/domain/property.ts";
 import { cacheImage, hashBuffer } from "../src/vision/media.ts";
 import { ResponsesClient } from "../src/vision/responses.ts";
 import {
@@ -13,9 +12,21 @@ import {
   probeVision,
 } from "../src/vision/vision.ts";
 
-const IMAGE_FEATURES = propertyPack.imageFeatures.filter((feature) =>
-  ["heat_pump", "sunlight"].includes(feature.key),
-);
+const IMAGE_FEATURES = [
+  {
+    key: "heat_pump",
+    label: "Heat pump",
+    prompt: "Is a heat pump visible?",
+    kind: "boolean" as const,
+  },
+  {
+    key: "sunlight",
+    label: "Sunlight",
+    prompt: "How much direct sunlight is visible?",
+    kind: "enum" as const,
+    options: ["low", "medium", "high"],
+  },
+];
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -112,7 +123,7 @@ test("vision schema and prompt cover the requested features", () => {
   assert.ok(schema.properties.features.properties.heat_pump);
   assert.ok(schema.properties.features.properties.sunlight);
   assert.match(buildVisionPrompt(IMAGE_FEATURES), /heat_pump \(boolean\)/);
-  assert.match(buildVisionPrompt(IMAGE_FEATURES), /one of none, low, moderate, high/);
+  assert.match(buildVisionPrompt(IMAGE_FEATURES), /one of low, medium, high/);
 });
 
 test("image extraction produces provenance-tagged facts and skips nulls", async () => {

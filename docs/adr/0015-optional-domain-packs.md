@@ -1,6 +1,6 @@
 # 0015 — Domain packs are optional presets
 
-Status: accepted
+Status: superseded by [0017](0017-remove-domain-packs.md)
 
 ## Context
 

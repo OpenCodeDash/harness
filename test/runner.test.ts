@@ -3,14 +3,12 @@ import { test } from "node:test";
 import { briefFromExtraction } from "../src/brief/brief.ts";
 import { CampaignStore } from "../src/campaign/store.ts";
 import type { SearchProvider } from "../src/discovery/searxng.ts";
-import { propertyPack } from "../src/domain/property.ts";
 import {
   runCampaign,
   type BrowserProvider,
   type RunnerEvent,
   type RunnerPage,
 } from "../src/runner/loop.ts";
-import { extractDescriptionFacts } from "../src/runner/text.ts";
 
 const SEARCH_URL =
   "https://www.trademe.co.nz/a/property/residential/rent/wellington/search";
@@ -64,40 +62,28 @@ class FakeSearch implements SearchProvider {
 }
 
 function makeBrief(overrides: Record<string, unknown> = {}) {
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = briefFromExtraction("rental", {
     hard: {
       rent_max: 650,
       bedrooms: { min: 2, max: 3 },
       areas: ["Wellington"],
     },
-    soft: [{ key: "parking", weight: 0.5 }],
+    criteria: [
+      {
+        key: "parking",
+        label: "Parking",
+        weight: 0.5,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "parking" },
+        origin: "explicit",
+      },
+    ],
     budgets: { max_listings: 10, max_usd: 15, max_minutes: 5, vision_max: 5 },
   });
   return { ...brief, ...overrides };
 }
 
-test("description extraction handles negation and special cases", () => {
-  const facts = extractDescriptionFacts(
-    "No heat pump. Unfurnished. Sorry, no pets. Off-street parking.",
-    propertyPack,
-  );
-  const byKey = Object.fromEntries(facts.map((fact) => [fact.key, fact.value]));
-  assert.equal(byKey.heat_pump, false);
-  assert.equal(byKey.furnished, false);
-  assert.equal(byKey.pets, "no");
-  assert.equal(byKey.parking, true);
-
-  const positive = extractDescriptionFacts(
-    "Heat pump installed, pets negotiable, furnished.",
-    propertyPack,
-  );
-  const positiveByKey = Object.fromEntries(
-    positive.map((fact) => [fact.key, fact.value]),
-  );
-  assert.equal(positiveByKey.heat_pump, true);
-  assert.equal(positiveByKey.pets, "negotiable");
-  assert.equal(positiveByKey.furnished, true);
-});
 
 test("campaign collects, extracts, scores, and exports", async () => {
   const store = CampaignStore.open(":memory:");
@@ -109,7 +95,7 @@ test("campaign collects, extracts, scores, and exports", async () => {
   try {
     const summary = await runCampaign(
       { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: false },
-      { brief: makeBrief(), pack: propertyPack },
+      { brief: makeBrief() },
     );
 
     assert.equal(summary.stopReason, "complete");
@@ -142,7 +128,7 @@ test("dynamic text and derived criteria produce evidence", async () => {
   const browser = new FakeBrowser((url) =>
     url === SEARCH_URL ? [item("1", LISTING_1, 600)] : null,
   );
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = briefFromExtraction("rental", {
     hard: {
       rent_max: 650,
       bedrooms: { min: 1, max: 4 },
@@ -183,7 +169,7 @@ test("dynamic text and derived criteria produce evidence", async () => {
           },
         },
       },
-      { brief, pack: propertyPack },
+      { brief },
     );
 
     const listing = store.findListing("trademe", "1")!;
@@ -237,7 +223,7 @@ test("pause stops at a boundary and resume continues from the cursor", async () 
           },
         },
       },
-      { brief: makeBrief(), pack: propertyPack },
+      { brief: makeBrief() },
     );
     assert.equal(first.stopReason, "paused");
     assert.equal(first.collected, 1);
@@ -249,7 +235,7 @@ test("pause stops at a boundary and resume continues from the cursor", async () 
         search: new FakeSearch(searchUrls),
         visitDetails: false,
       },
-      { brief: makeBrief(), pack: propertyPack, resumeRunId: first.runId },
+      { brief: makeBrief(), resumeRunId: first.runId },
     );
     assert.equal(resumed.stopReason, "complete");
     assert.equal(store.listListings().length, 2);
@@ -277,7 +263,7 @@ test("detail visits add description-derived facts", async () => {
   try {
     await runCampaign(
       { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: true, detailLimit: 1 },
-      { brief: makeBrief(), pack: propertyPack },
+      { brief: makeBrief() },
     );
     const listing = store.findListing("trademe", "1")!;
     const latest = store.latestEvidence(listing.id);
@@ -296,7 +282,7 @@ test("vision runs on candidates and records image evidence with provenance", asy
     url === SEARCH_URL ? [item("1", LISTING_1, 600)] : null,
   );
   let extracted = 0;
-  const brief = briefFromExtraction("rental", propertyPack, {
+  const brief = briefFromExtraction("rental", {
     hard: {
       rent_max: 650,
       bedrooms: { min: 1, max: 4 },
@@ -349,7 +335,7 @@ test("vision runs on candidates and records image evidence with provenance", asy
           },
         },
       },
-      { brief, pack: propertyPack },
+      { brief },
     );
 
     assert.equal(extracted, 1);
@@ -380,7 +366,6 @@ test("collection stops at the listing budget", async () => {
         brief: makeBrief({
           budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5 },
         }),
-        pack: propertyPack,
       },
     );
     assert.equal(summary.stopReason, "budget");
@@ -413,7 +398,6 @@ test("detail visits only enrich ingested listings under the budget", async () =>
         brief: makeBrief({
           budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5 },
         }),
-        pack: propertyPack,
       },
     );
     assert.equal(summary.stopReason, "budget");
@@ -447,7 +431,7 @@ test("emits progress and log events for monitoring", async () => {
         detailLimit: 1,
         onEvent: (event) => events.push(event),
       },
-      { brief: makeBrief(), pack: propertyPack },
+      { brief: makeBrief() },
     );
 
     assert.ok(
@@ -487,7 +471,6 @@ test("source policy excludes denied sites from discovery", async () => {
         brief: makeBrief({
           sources: { web: "open", deny: ["trademe"] },
         }),
-        pack: propertyPack,
       },
     );
 
@@ -536,7 +519,7 @@ test("html fallback is budget-gated and tagged with generic provenance", async (
     });
     const summary = await runCampaign(
       { store, browser, search: new FakeSearch(urls), visitDetails: false },
-      { brief, pack: propertyPack },
+      { brief },
     );
 
     assert.equal(summary.collected, 1);
@@ -568,7 +551,7 @@ test("structured-only source scope rejects html fallback listings", async () => 
         search: new FakeSearch(["https://shop.test/listing/1"]),
         visitDetails: false,
       },
-      { brief, pack: propertyPack },
+      { brief },
     );
 
     assert.equal(summary.collected, 0);

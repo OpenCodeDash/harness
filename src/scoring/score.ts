@@ -1,7 +1,6 @@
 import type { Brief } from "../brief/types.ts";
 import type {
   CriterionSpec,
-  DomainPack,
   HardPredicate,
   Normalizer,
 } from "../domain/types.ts";
@@ -148,11 +147,9 @@ export function normalizeValue(
 
 export function scoreListing(
   brief: Brief,
-  pack: DomainPack,
   facts: Facts,
   options: ScoreOptions = {},
 ): ScoreResult {
-  void pack;
   const minConfidence = options.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   const hardFailures = checkHardConstraints(brief, facts, minConfidence);
   const breakdown: CriterionBreakdown[] = [];
