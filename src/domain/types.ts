@@ -77,13 +77,23 @@ export interface ImageFeatureDef {
   aliases?: string[];
 }
 
+export interface QueryTemplate {
+  template: string;
+  /** Recipe id this query feeds. Omit for source-agnostic web discovery. */
+  source?: string;
+  /** Optional search-engine site restriction, e.g. "trademe.co.nz". */
+  site?: string;
+}
+
+export type QueryTemplateInput = string | QueryTemplate;
+
 export interface DomainPack {
   id: string;
   label: string;
   fields: FieldDef[];
   imageFeatures: ImageFeatureDef[];
   defaultCriteria: CriterionSpec[];
-  queryTemplates: string[];
+  queryTemplates: QueryTemplateInput[];
 }
 
 export function findField(

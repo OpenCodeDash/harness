@@ -16,6 +16,8 @@ export interface Recipe {
   id: string;
   domain: string;
   version: number;
+  /** Higher wins when several recipes match the same URL. Defaults to 0. */
+  priority?: number;
   matches(url: string): boolean;
   isListing(url: string): boolean;
   searchReady: string;
@@ -134,7 +136,9 @@ export function registerRecipe(recipe: Recipe): void {
 }
 
 export function getRecipeFor(url: string): Recipe | null {
-  return registry.find((recipe) => recipe.matches(url)) ?? null;
+  const matches = registry.filter((recipe) => recipe.matches(url));
+  matches.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  return matches[0] ?? null;
 }
 
 export function listRecipes(): Recipe[] {

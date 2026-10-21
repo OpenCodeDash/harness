@@ -25,7 +25,8 @@ stays steerable while it runs.
 
 - Not a coding agent: no git verification, no PR/merge loop, no reviewer role.
 - Not multi-tenant: no containers, no isolation, no credential broker (ADR 0001).
-- Not a general scraper: extraction is per-site recipes, not universal parsing.
+- Not a general scraper: extraction is per-site recipes, with a JSON-LD fallback for sites
+  that publish structured data (ADR 0012).
 - Not a valuation or prediction engine: it ranks observable evidence, it does not price assets.
 - Not scheduled: runs are on demand in v1.
 - Not a live spreadsheet: export is a read-only view (ADR 0008).
@@ -265,9 +266,17 @@ interface Recipe {
 - Recipes are deterministic and cheap per listing.
 - Required fields are validated. A missing required field is a **recipe failure**, surfaced as
   an error and a board task — never a partial row.
-- Unknown sites fall back to a single schema-constrained "propose a recipe" model call; the
-  result is reviewed and stored as a recipe. There is no freeform browsing agent in the
-  runtime (ADR 0010).
+- Site recipes win by priority. A generic **JSON-LD fallback** handles any other HTTP page
+  that publishes `schema.org` structured data: it flattens `@graph` and `ItemList`, prefers
+  listing entities (`Product`, `Vehicle`, `RealEstateListing`, …), and maps name, description,
+  price, brand, model, year, mileage, condition, address, geo, and images. Pages without
+  usable JSON-LD still fail loudly (ADR 0012).
+- Unknown sites without JSON-LD fall back to a single schema-constrained "propose a recipe"
+  model call; the result is reviewed and stored as a recipe. There is no freeform browsing
+  agent in the runtime (ADR 0010).
+- Query templates may target a source (`{ template, source, site }`). Discovery skips a
+  source-tagged template when that recipe is not registered, so a pack never wastes searches
+  on a source the runner cannot extract.
 - Rate limits and session handling live in the runner, not in recipes.
 
 ## 12. Image and text evidence
@@ -359,7 +368,6 @@ Stopping is explicit, never "looks good enough":
 - CSV only, or CSV + XLSX with formatting.
 - Trade Me session/auth handling; what is visible without login.
 - Dedupe thresholds and whether relists merge or supersede.
-- A generic source recipe (JSON-LD) to reduce the Trade Me-only bias.
 - Whether to add an optional live Google Sheet later (explicitly deferred).
 
 ## 17. Domain packs
@@ -379,8 +387,8 @@ pack must not require changes to the runner, scorer, store, or feedback protocol
 | Pack | Status |
 | --- | --- |
 | property | v1 |
-| cars | later |
-| laptops | later |
+| cars | v1 |
+| laptops | v1 |
 
 Adding a pack must not require changes to the runner, scorer, store, or feedback protocol.
 

@@ -188,6 +188,7 @@ export const trademeRecipe: Recipe = {
   id: "trademe",
   domain: "property",
   version: 1,
+  priority: 10,
   matches: (url) => {
     try {
       const parsed = new URL(url);

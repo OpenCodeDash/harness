@@ -15,8 +15,9 @@ Local, single-user, TypeScript. No containers, no service, no multi-tenancy.
 ## Status
 
 Core is implemented and tested: store, briefs, scoring, feedback, export, SearXNG
-discovery, recipes, the Trade Me recipe, and the chrome-devtools browser client. Work is
-tracked on the **Research Harness** kanban board.
+discovery, recipes, the Trade Me recipe, a generic JSON-LD fallback, property/cars/laptops
+packs, and the chrome-devtools browser client. Work is tracked on the **Research Harness**
+kanban board.
 
 ## Commands
 
