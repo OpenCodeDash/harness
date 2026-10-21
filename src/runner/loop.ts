@@ -4,6 +4,7 @@ import { serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
 import type { ImageFeatureDef } from "../domain/types.ts";
+import { flattenSpecs } from "../domain/specs.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
 import type { PlannedQuery, QueryPlanner } from "../discovery/planner.ts";
 import { canonicalUrl, type SearchProvider } from "../discovery/searxng.ts";
@@ -693,6 +694,20 @@ function ingest(
       value,
       sourceType: "page",
       sourceRef,
+      confidence,
+      observedAt,
+    });
+  }
+
+  const specs = flattenSpecs(item.fields.specs);
+  for (const [key, value] of Object.entries(specs)) {
+    if (item.fields[key] !== undefined) continue;
+    store.addEvidence({
+      listingId: listing.id,
+      key,
+      value,
+      sourceType: "page",
+      sourceRef: `${sourceRef}:specs`,
       confidence,
       observedAt,
     });

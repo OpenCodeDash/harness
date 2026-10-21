@@ -201,3 +201,21 @@ test("generic recipe is a fallback and site recipes win", () => {
   );
   assert.equal(jsonLdRecipe.isListing("https://shop.test/product/1"), false);
 });
+
+test("maps additionalProperty into specs", () => {
+  const product = {
+    ...PRODUCT,
+    additionalProperty: [
+      { "@type": "PropertyValue", name: "RAM Size", value: "32GB" },
+      { "@type": "PropertyValue", name: "Battery Health", value: "91%" },
+    ],
+  };
+  const [listing] = extractJsonLdListings(
+    [product],
+    "https://shop.test/p/1",
+  ) as Array<{ fields: Record<string, unknown> }>;
+  assert.deepEqual(listing?.fields.specs, {
+    ram_size: "32GB",
+    battery_health: "91%",
+  });
+});

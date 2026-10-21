@@ -18,7 +18,8 @@ Core is implemented and tested: store, briefs, scoring, feedback, export, SearXN
 discovery with a model query planner and template fallback, source integrations that own their
 recipes, brief-scoped
 open-web discovery, the Trade Me integration, JSON-LD extraction with a budget-gated HTML
-text fallback, a single domain-agnostic field vocabulary, and the chrome-devtools browser
+text fallback, a single domain-agnostic field vocabulary with arbitrary attribute specs, and
+the chrome-devtools browser
 client. Work is tracked on the
 **Research Harness** kanban board.
 

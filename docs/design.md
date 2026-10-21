@@ -190,7 +190,9 @@ Rules:
 
 ## 8. Evidence model
 
-A listing is a set of claims, each with provenance:
+A listing is a set of claims, each with provenance. Arbitrary attributes are stored as a
+flattened `specs` map (ADR 0021); field criteria resolve exact keys, then unit aliases, then a
+conservative fuzzy match.
 
 | field | meaning |
 | --- | --- |
@@ -206,7 +208,8 @@ extracted evidence for the same key.
 
 Criteria determine where evidence comes from:
 
-- `field` reads the structured field directly (`field: rent`).
+- `field` reads the structured field directly (`field: rent`) or a flattened spec
+  (`field: ram_gb` resolving to `memory`).
 - `text` extracts the criterion from the listing description into the criterion key
   (`source_ref: text:description`).
 - `image` extracts the criterion from photos (`source_ref: sha256:…`).

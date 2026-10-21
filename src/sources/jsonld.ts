@@ -337,6 +337,22 @@ export function extractJsonLdListings(
     put("availability", text(offer?.availability));
     put("seller", text(asObject(item.seller)?.name) ?? text(item.seller));
 
+    const specs: Obj = {};
+    for (const entry of asArray(item.additionalProperty)) {
+      const property = asObject(entry);
+      if (!property) continue;
+      const name = text(property.name);
+      const value = text(property.value) ?? text(property.description);
+      if (!name || !value) continue;
+      const key = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (key) specs[key] = value;
+    }
+    put("specs", Object.keys(specs).length ? specs : undefined);
+
     listings.push({
       externalId,
       url,
@@ -445,6 +461,34 @@ export function extractFallbackListing(
     .filter((entry): entry is string => Boolean(entry))
     .filter((entry, index, all) => all.indexOf(entry) === index);
 
+  const specs: Record<string, string> = {};
+  const addSpec = (name: string | null | undefined, value: string | null | undefined) => {
+    const label = clean(name);
+    const textValue = clean(value);
+    if (!label || !textValue) return;
+    if (label.length > 60 || textValue.length > 120) return;
+    const key = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (key) specs[key] = textValue;
+  };
+
+  for (const list of document.querySelectorAll("dl")) {
+    const terms = [...list.querySelectorAll("dt")];
+    const definitions = [...list.querySelectorAll("dd")];
+    for (let index = 0; index < terms.length; index += 1) {
+      addSpec(terms[index]?.textContent, definitions[index]?.textContent);
+    }
+  }
+
+  for (const row of document.querySelectorAll("tr")) {
+    const cells = [...row.querySelectorAll("th, td")].map((cell) =>
+      cell.textContent,
+    );
+    if (cells.length === 2) addSpec(cells[0], cells[1]);
+  }
+
   return {
     externalId,
     url,
@@ -452,6 +496,7 @@ export function extractFallbackListing(
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
       ...(price !== undefined ? { price } : {}),
+      ...(Object.keys(specs).length ? { specs } : {}),
     },
     media,
     sourceRef: "generic:html",

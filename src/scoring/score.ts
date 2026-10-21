@@ -5,6 +5,7 @@ import type {
   Normalizer,
 } from "../domain/types.ts";
 import { criterionFactKey } from "../domain/types.ts";
+import { resolveSpecKey } from "../domain/specs.ts";
 
 export interface Fact {
   key: string;
@@ -84,10 +85,21 @@ function toNumber(value: unknown): number | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
-    const parsed = Number(trimmed.replace(/[^0-9.+-]/g, ""));
+    const match = trimmed
+      .replaceAll(",", "")
+      .match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number(match[0]);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function getFact(facts: Facts, key: string): Fact | undefined {
+  const exact = facts.get(key);
+  if (exact) return exact;
+  const resolved = resolveSpecKey(key, [...facts.keys()]);
+  return resolved ? facts.get(resolved) : undefined;
 }
 
 function toBoolean(value: unknown): boolean | null {
@@ -169,7 +181,7 @@ export function scoreListing(
     }
 
     totalMass += weight;
-    const fact = facts.get(criterionFactKey(criterion));
+    const fact = getFact(facts, criterionFactKey(criterion));
     const configured = criterion.unknown ?? brief.unknownPolicy;
     const policy = configured === "investigate" ? "flag" : configured;
     const lowConfidence =
@@ -356,7 +368,7 @@ export function checkHardConstraints(
 
   if (brief.hard.required) {
     for (const [key, expected] of Object.entries(brief.hard.required)) {
-      const fact = facts.get(key);
+      const fact = getFact(facts, key);
       if (!fact) failures.push(`${key} unknown`);
       else if (!matches(fact.value, expected)) {
         failures.push(`${key} != ${JSON.stringify(expected)}`);
@@ -383,7 +395,7 @@ export function checkHardConstraints(
 
   for (const criterion of brief.criteria) {
     if (!criterion.hard) continue;
-    const fact = facts.get(criterionFactKey(criterion));
+    const fact = getFact(facts, criterionFactKey(criterion));
     if (!fact || fact.confidence < minConfidence) {
       failures.push(`${criterion.label} unknown`);
       continue;

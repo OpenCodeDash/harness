@@ -376,7 +376,7 @@ export function buildBriefPrompt(prompt: string): string {
     "- Suggested criteria must not have hard constraints. Hard constraints only come from stated limits.",
     "- Use rent_max/bedrooms/areas only when the request is about property rentals. Otherwise express limits as hard predicates on the relevant criterion (for example price with op lte).",
     "- If the request mentions work or \"near work\", set anchors.work.address to the best available place name (e.g. \"Wellington CBD\") so commute can be computed.",
-    "- Use field sources only for the available fields. For anything else, use text/image facts.",
+    "- Field sources may name a canonical field key or a spec key such as ram_gb, storage_gb, or battery_health. Specs are read from structured data, spec tables, and key/value rows. If a value is only stated in prose, use a text criterion instead.",
     "- Only set sources when the user names sites or limits the search. allow/deny/prefer take source ids or hosts (for example trademe or trademe.co.nz). web defaults to open; use structured-only to skip generic HTML and off to search only allow-listed sources.",
     "- Weights are 0..1. Explicit criteria should carry the user's intent; suggested criteria default lower.",
     "- Do not invent facts. Criteria are what to look for; evidence comes later.",

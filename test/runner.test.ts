@@ -699,3 +699,52 @@ test("provided seeds bypass discovery and are collected directly", async () => {
     store.close();
   }
 });
+
+test("specs are flattened into evidence and satisfy field criteria", async () => {
+  const store = CampaignStore.open(":memory:");
+  const seed = "https://shop.test/products/1";
+  const base = item("1", seed, 600);
+  const browser = new FakeBrowser((url) =>
+    url === seed
+      ? [
+          {
+            ...base,
+            fields: {
+              ...base.fields,
+              specs: { memory: "16 to 31 GB", brand: "Apple" },
+            },
+          },
+        ]
+      : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch([]), visitDetails: false },
+      {
+        brief: makeBrief({
+          seeds: [seed],
+          criteria: [
+            {
+              key: "ram",
+              label: "RAM",
+              weight: 1,
+              kind: "number",
+              normalizer: { type: "higher-is-better", max: 64 },
+              source: { type: "field", field: "ram_gb" },
+              origin: "explicit",
+              hard: { op: "gte", value: 16 },
+            },
+          ],
+        }),
+      },
+    );
+    assert.equal(summary.collected, 1);
+    assert.equal(summary.hardPass, 1);
+    const listing = store.findListing("jsonld", "1")!;
+    const keys = store.listEvidence(listing.id).map((entry) => entry.key);
+    assert.ok(keys.includes("memory"));
+    assert.ok(keys.includes("specs"));
+  } finally {
+    store.close();
+  }
+});
