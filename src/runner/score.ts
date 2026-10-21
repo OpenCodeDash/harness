@@ -1,7 +1,6 @@
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
 import type { Listing } from "../campaign/types.ts";
-import type { DomainPack } from "../domain/types.ts";
 import { buildExportTable, tableToCsv } from "../export/csv.ts";
 import {
   scoreListing,
@@ -26,16 +25,15 @@ export interface CampaignScores {
 export function scoreCampaign(
   store: CampaignStore,
   brief: Brief,
-  pack: DomainPack,
 ): CampaignScores {
   const items: ScoredItem[] = store.listListings().map((listing) => {
     const facts = selectFacts(store.listEvidence(listing.id));
-    return { listing, facts, result: scoreListing(brief, pack, facts) };
+    return { listing, facts, result: scoreListing(brief, facts) };
   });
 
   return {
     items,
-    csv: tableToCsv(buildExportTable(items, brief, pack)),
+    csv: tableToCsv(buildExportTable(items, brief)),
     hardPass: items.filter((item) => item.result.hardPass).length,
     withGaps: items.filter((item) => item.result.gaps.length > 0).length,
   };

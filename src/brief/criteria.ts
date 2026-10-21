@@ -1,11 +1,9 @@
 import { z } from "zod";
-import { allFields } from "../domain/generic.ts";
+import { resolveFieldKey } from "../domain/fields.ts";
 import type {
   CriterionSpec,
   DerivedEvaluator,
-  DomainPack,
   HardPredicate,
-  ImageFeatureDef,
   Normalizer,
 } from "../domain/types.ts";
 import { DERIVED_EVALUATORS } from "../domain/types.ts";
@@ -82,19 +80,6 @@ export function slugifyKey(value: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function resolveField(pack: DomainPack | undefined, field: string): string | null {
-  if (!pack) return field;
-  const value = field.trim().toLowerCase();
-  const found = allFields(pack).find(
-    (candidate) =>
-      candidate.key.toLowerCase() === value ||
-      candidate.key.toLowerCase() === value.replace(/\s+/g, "_") ||
-      candidate.label.toLowerCase() === value ||
-      (candidate.aliases ?? []).some((alias) => alias.toLowerCase() === value),
-  );
-  return found?.key ?? null;
-}
-
 function validateHard(
   hard: HardPredicate,
   kind: CriterionSpec["kind"],
@@ -116,7 +101,6 @@ function validateHard(
 
 export function normaliseCriterion(
   raw: CriterionInput,
-  pack: DomainPack | undefined,
   warnings: string[],
 ): CriterionSpec | null {
   const key = slugifyKey(raw.key);
@@ -127,9 +111,9 @@ export function normaliseCriterion(
 
   let source = raw.source as CriterionSpec["source"];
   if (source.type === "field") {
-    const field = resolveField(pack, source.field);
+    const field = resolveFieldKey(source.field) ?? slugifyKey(source.field);
     if (!field) {
-      warnings.push(`dropped "${key}": unknown field "${source.field}"`);
+      warnings.push(`dropped "${key}": unusable field "${source.field}"`);
       return null;
     }
     source = { type: "field", field };
@@ -186,14 +170,13 @@ export function normaliseCriterion(
 
 export function normaliseCriteria(
   raw: CriterionInput[],
-  pack: DomainPack | undefined,
   warnings: string[],
 ): CriterionSpec[] {
   const byKey = new Map<string, CriterionSpec>();
   const byLabel = new Map<string, string>();
 
   for (const input of raw) {
-    const criterion = normaliseCriterion(input, pack, warnings);
+    const criterion = normaliseCriterion(input, warnings);
     if (!criterion) continue;
 
     const labelKey = criterion.label.trim().toLowerCase();
@@ -262,98 +245,54 @@ export function normaliseCriteria(
   return kept;
 }
 
-export function fallbackCriteria(pack: DomainPack): CriterionSpec[] {
-  return pack.defaultCriteria.map((criterion) => ({
-    ...criterion,
-    origin: "suggested",
-  }));
+export function fallbackCriteria(): CriterionSpec[] {
+  return [
+    {
+      key: "price",
+      label: "Price",
+      weight: 0.6,
+      kind: "number",
+      normalizer: { type: "lower-is-better", max: 100_000 },
+      source: { type: "field", field: "price" },
+      origin: "suggested",
+    },
+    {
+      key: "condition",
+      label: "Condition",
+      weight: 0.5,
+      kind: "enum",
+      normalizer: {
+        type: "enum",
+        scores: { damaged: 0, used: 0.6, refurbished: 0.75, new: 1 },
+      },
+      source: { type: "field", field: "condition" },
+      origin: "suggested",
+    },
+  ];
 }
 
+/**
+ * Legacy `soft` briefs predate brief-owned criteria. Without domain presets
+ * only the core vocabulary can be mapped; anything else is dropped loudly.
+ */
 export function legacyCriteria(
-  pack: DomainPack,
   soft: Array<{ key: string; weight: number }>,
   warnings: string[],
 ): CriterionSpec[] {
   const criteria: CriterionSpec[] = [];
+  const defaults = new Map(
+    fallbackCriteria().map((criterion) => [criterion.key, criterion]),
+  );
   for (const item of soft) {
-    const key = item.key.trim().toLowerCase();
-    let found = pack.defaultCriteria.find(
-      (criterion) =>
-        criterion.key.toLowerCase() === key ||
-        criterion.key.toLowerCase() === key.replace(/\s+/g, "_") ||
-        criterion.label.toLowerCase() === key,
-    );
-
+    const key = item.key.trim().toLowerCase().replace(/\s+/g, "_");
+    const found = defaults.get(resolveFieldKey(key) ?? key);
     if (!found) {
-      const field = allFields(pack).find(
-        (candidate) =>
-          candidate.key.toLowerCase() === key ||
-          candidate.label.toLowerCase() === key ||
-          (candidate.aliases ?? []).some((alias) => alias.toLowerCase() === key),
+      warnings.push(
+        `legacy criterion "${item.key}" has no default; respecify it as a criterion`,
       );
-      const feature = pack.imageFeatures.find(
-        (candidate) =>
-          candidate.key.toLowerCase() === key ||
-          candidate.label.toLowerCase() === key ||
-          (candidate.aliases ?? []).some((alias) => alias.toLowerCase() === key),
-      );
-      const canonical = field?.key ?? feature?.key;
-      if (canonical) {
-        found = pack.defaultCriteria.find(
-          (criterion) => criterion.key === canonical,
-        );
-        if (!found && feature) {
-          criteria.push({
-            ...criterionFromImageFeature(feature, item.weight),
-            origin: "explicit",
-          });
-          continue;
-        }
-      }
-    }
-
-    if (!found) {
-      warnings.push(`legacy criterion "${item.key}" is not in the ${pack.id} pack`);
       continue;
     }
-    criteria.push({
-      ...found,
-      weight: clamp01(item.weight),
-      origin: "explicit",
-    });
+    criteria.push({ ...found, weight: clamp01(item.weight), origin: "explicit" });
   }
   return criteria;
-}
-
-export function criterionFromImageFeature(
-  feature: ImageFeatureDef,
-  weight = 0.5,
-): CriterionSpec {
-  const normalizer: Normalizer =
-    feature.kind === "boolean"
-      ? { type: "boolean" }
-      : feature.kind === "enum"
-        ? {
-            type: "enum",
-            scores: Object.fromEntries(
-              (feature.options ?? []).map((option, index, options) => [
-                option,
-                options.length <= 1 ? 1 : index / (options.length - 1),
-              ]),
-            ),
-          }
-        : { type: "higher-is-better", max: 1 };
-  return {
-    key: slugifyKey(feature.key),
-    label: feature.label,
-    weight: clamp01(weight),
-    kind: feature.kind,
-    normalizer,
-    source: {
-      type: "image",
-      prompt: feature.prompt,
-      ...(feature.options ? { options: feature.options } : {}),
-    },
-    origin: "explicit",
-  };
 }

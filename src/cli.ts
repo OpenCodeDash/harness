@@ -9,8 +9,6 @@ import type { CampaignStore } from "./campaign/store.ts";
 import { CampaignStore as Store } from "./campaign/store.ts";
 import { createControlServer, type ControlServer, type ControlState } from "./control/api.ts";
 import { connectSearxngMcp } from "./discovery/searxng.ts";
-import { getPack } from "./domain/index.ts";
-import type { DomainPack } from "./domain/types.ts";
 import { NominatimGeocoder, OpenRouteServiceRouter } from "./geo/providers.ts";
 import { CachedGeoService } from "./geo/service.ts";
 import { McpBrowser } from "./browser/mcp.ts";
@@ -23,7 +21,6 @@ export interface CliOptions {
   db: string;
   briefPath?: string;
   prompt?: string;
-  pack: string;
   exportPath: string;
   mediaDir: string;
   serve?: number;
@@ -37,7 +34,6 @@ export interface CliOptions {
 export function parseArgs(argv: string[]): CliOptions {
   const options: Partial<CliOptions> = {
     db: "campaigns/default/campaign.db",
-    pack: "property",
     noVision: false,
     noDetails: false,
     now: false,
@@ -62,9 +58,6 @@ export function parseArgs(argv: string[]): CliOptions {
         break;
       case "--prompt":
         options.prompt = value();
-        break;
-      case "--pack":
-        options.pack = value();
         break;
       case "--export":
         options.exportPath = value();
@@ -116,7 +109,6 @@ function help(): string {
     "  --db <path>        campaign database (default campaigns/default/campaign.db)",
     "  --brief <path>     load a brief from YAML",
     "  --prompt <text>    compile a brief from a prompt via the router",
-    "  --pack <id>        domain pack preset (default property; unknown ids use generic)",
     "  --export <path>    CSV output path",
     "  --media <path>     cached image directory",
     "  --serve [port]     run the control API (default 7331)",
@@ -137,7 +129,6 @@ export async function main(
 ): Promise<void> {
   const options = parseArgs(argv);
   const store: CampaignStore = Store.open(options.db);
-  const pack: DomainPack = getPack(options.pack);
   const router = new ResponsesClient({
     baseUrl: env("ROUTER_BASE_URL", "http://192.168.68.51:3005/v1"),
     apiKey: process.env.ROUTER_API_KEY,
@@ -151,7 +142,6 @@ export async function main(
   } else if (options.prompt) {
     brief = await compileBrief(
       options.prompt,
-      pack,
       new ResponsesBriefExtractor(router, model),
     );
   } else {
@@ -172,7 +162,6 @@ export async function main(
   const browser = await McpBrowser.connect();
   const state: ControlState = {
     store,
-    pack,
     brief,
     paused: false,
     token: process.env.HARNESS_TOKEN,
@@ -226,7 +215,6 @@ export async function main(
     state.brief = nextBrief;
     const summary = await runCampaign(deps, {
       brief: nextBrief,
-      pack,
       resumeRunId: lastRunId,
     });
     lastRunId = summary.runId;
@@ -237,7 +225,6 @@ export async function main(
   const resume = async (runId: number): Promise<CampaignSummary> => {
     const summary = await runCampaign(deps, {
       brief: state.brief,
-      pack,
       resumeRunId: runId,
     });
     lastRunId = summary.runId;

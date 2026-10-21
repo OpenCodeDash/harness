@@ -17,7 +17,7 @@ Local, single-user, TypeScript. No containers, no service, no multi-tenancy.
 Core is implemented and tested: store, briefs, scoring, feedback, export, SearXNG
 discovery, source integrations that own their recipes and query templates, brief-scoped
 open-web discovery, the Trade Me integration, JSON-LD extraction with a budget-gated HTML
-text fallback, optional generic/property/cars/laptops packs, and the chrome-devtools browser
+text fallback, a single domain-agnostic field vocabulary, and the chrome-devtools browser
 client. Work is tracked on the
 **Research Harness** kanban board.
 
@@ -55,7 +55,7 @@ exposes:
 ```
 GET  /health
 GET  /campaigns
-POST /campaigns                    {prompt | brief, pack?, name?}
+POST /campaigns                    {prompt | brief, name?}
 GET  /campaigns/:id
 GET  /campaigns/:id/results
 GET  /campaigns/:id/export.csv

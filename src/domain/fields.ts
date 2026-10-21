@@ -1,6 +1,11 @@
-import type { DomainPack, FieldDef } from "./types.ts";
+import type { FieldDef } from "./types.ts";
 
-export const GENERIC_FIELDS: FieldDef[] = [
+/**
+ * Canonical field vocabulary emitted by the structured-data and generic page
+ * extractors. This is not a domain preset: every brief may use any of these
+ * keys, and a missing key is reported as an evidence gap, never a hard error.
+ */
+export const FIELDS: FieldDef[] = [
   { key: "title", label: "Title", kind: "text" },
   { key: "description", label: "Description", kind: "text" },
   {
@@ -45,39 +50,19 @@ export const GENERIC_FIELDS: FieldDef[] = [
   { key: "seller", label: "Seller", kind: "text" },
 ];
 
-/** Generic fields plus the pack's fields, with pack definitions taking precedence. */
-export function allFields(pack?: DomainPack): FieldDef[] {
-  const byKey = new Map(GENERIC_FIELDS.map((field) => [field.key, field]));
-  for (const field of pack?.fields ?? []) byKey.set(field.key, field);
-  return [...byKey.values()];
+export function findField(key: string): FieldDef | undefined {
+  return FIELDS.find((field) => field.key === key);
 }
 
-export const genericPack: DomainPack = {
-  id: "generic",
-  label: "Generic listings",
-  fields: GENERIC_FIELDS,
-  imageFeatures: [],
-  defaultCriteria: [
-    {
-      key: "price",
-      label: "Price",
-      weight: 0.6,
-      kind: "number",
-      normalizer: { type: "lower-is-better", max: 100_000 },
-      source: { type: "field", field: "price" },
-      origin: "suggested",
-    },
-    {
-      key: "condition",
-      label: "Condition",
-      weight: 0.5,
-      kind: "enum",
-      normalizer: {
-        type: "enum",
-        scores: { damaged: 0, used: 0.6, refurbished: 0.75, new: 1 },
-      },
-      source: { type: "field", field: "condition" },
-      origin: "suggested",
-    },
-  ],
-};
+/** Map a user-facing field name, alias, or label to a canonical field key. */
+export function resolveFieldKey(value: string): string | null {
+  const target = value.trim().toLowerCase();
+  const found = FIELDS.find(
+    (field) =>
+      field.key.toLowerCase() === target ||
+      field.key.toLowerCase() === target.replace(/\s+/g, "_") ||
+      field.label.toLowerCase() === target ||
+      (field.aliases ?? []).some((alias) => alias.toLowerCase() === target),
+  );
+  return found?.key ?? null;
+}

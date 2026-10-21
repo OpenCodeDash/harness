@@ -18,7 +18,7 @@ stays steerable while it runs.
 - Rate listings against **weighted, user-specific requirements**, explainably.
 - Use **image evidence** for things listings don't say (heat pump, sunlight, condition).
 - Accept interruption and feedback at any time; re-score or re-search without a full rerun.
-- Work for property, cars, laptops, and other listing-shaped research via domain packs.
+- Work for any listing-shaped research from the prompt alone; no domain preset required.
 - Leave a durable, auditable record of what was seen, when, and from where.
 
 ## 3. Non-goals
@@ -97,7 +97,7 @@ brief ─► discover ─► collect ─► extract ─► filter ─► vision 
 
 The brief is versioned YAML, compiled from the initial prompt and amended by feedback.
 
-Criteria are **brief-owned data**, not a fixed pack enum. The compiler extracts explicit
+Criteria are **brief-owned data**. The compiler extracts explicit
 criteria from the request and proposes suggested ones; every criterion carries its own
 evaluation spec.
 
@@ -162,10 +162,10 @@ warnings: []
 
 Rules:
 
-- `source` is one of `field`, `text`, `image`, or `derived`. `field` is limited to the
-  canonical generic vocabulary plus the pack's structured fields; derived evaluators are
-  `commute`, `price_per_bedroom`, and `price_per_bathroom`; text and image prompts are
-  extraction instructions for the model.
+- `source` is one of `field`, `text`, `image`, or `derived`. `field` names a key in the
+  canonical field vocabulary or an extracted spec; derived evaluators are `commute`,
+  `price_per_bedroom`, and `price_per_bathroom`; text and image prompts are extraction
+  instructions for the model.
 - Normalizers encode preference: `boolean prefer: false` makes a bad thing (damp, mould)
   score well when absent.
 - Explicit criteria come from the user. Suggested criteria are marked, lower-weighted by
@@ -182,7 +182,7 @@ Rules:
   warnings. The user removes or tunes suggestions, then starts; after that the run is
   autonomous.
 - Legacy briefs with `soft: [{ key, weight }]` migrate to full criteria on load and are
-  pinned, so a later pack change cannot alter an old campaign.
+  pinned, so later compiler changes cannot alter an old campaign.
 - Warnings record dropped criteria, cap trims, and invalid specs; they are surfaced in the
   preview and the brief echo.
 
@@ -227,8 +227,8 @@ score    = Σ(s_c · w_c for known c) / Σ(w_c for known c)
 coverage = Σ(w_c for known c) / Σ(w_c for all c)
 ```
 
-- Criteria are read from the brief, not looked up in a pack. A brief's criteria are pinned,
-  so re-scoring is reproducible even if the pack changes later.
+- Criteria are read from the brief, never looked up in a preset. A brief's criteria are
+  pinned, so re-scoring is reproducible later.
 - `coverage` is reported alongside `score`. A high score on thin evidence is not a strong
   recommendation, and the export must say so.
 - Unknown handling follows the criterion override or `unknown_policy`: `flag` (default)
@@ -293,9 +293,8 @@ interface Recipe {
   model call; the result is reviewed and stored as a recipe. There is no freeform browsing
   agent in the runtime (ADR 0010).
 - Each source integration owns its discovery templates
-  (`{ template, domains, requires, site }`). Discovery only asks registered sources, filters
-  templates by the brief's domain, and skips templates whose required values are empty. Packs
-  do not own queries (ADR 0013).
+  (`{ template, domains, requires, site }`). Discovery only asks registered sources and skips
+  templates whose required values are empty (ADR 0013).
 - Rate limits and session handling live in the runner, not in recipes.
 
 ## 12. Image and text evidence
@@ -303,8 +302,7 @@ interface Recipe {
 Image evidence:
 
 - Runs on **shortlisted survivors only**, capped by `vision_max` using the pre-vision score.
-- Features come from the **brief's criteria** whose `source.type` is `image`. The pack's image
-  features are templates for suggestions, not the active set.
+- Features come from the **brief's criteria** whose `source.type` is `image`.
 - Transport: OpenCode Go `gpt-5.6-luna` through the router's `/v1/responses` endpoint, with
   base64 `input_image` and a JSON-schema output format (ADR 0009). Chat completions is not
   supported by that model.
@@ -389,29 +387,25 @@ Stopping is explicit, never "looks good enough":
 - Dedupe thresholds and whether relists merge or supersede.
 - Whether to add an optional live Google Sheet later (explicitly deferred).
 
-## 17. Domain packs
+## 17. Field vocabulary
 
-The core is listing-agnostic. Packs are optional presets; the harness always has a generic
-canonical vocabulary for JSON-LD-shaped listings. A pack adds capabilities and defaults, not
-the active criteria set:
+The core is listing-agnostic. There are no domain presets: a brief is prompt + criteria +
+source scope + budgets, and it works the same for rentals, cars, laptops, or anything else.
 
-- extra field schema and aliases (the generic fields always apply)
-- image-feature templates and suggested criteria
-- derived evaluators
-- source recipes
+- `src/domain/fields.ts` holds one canonical vocabulary emitted by structured-data and
+  generic page extraction (`title`, `description`, `price`, `brand`, `model`, `condition`,
+  `location`, …). It is a naming convention, not a gate: a criterion may name any key, and an
+  unresolved key becomes an evidence gap rather than a compile error.
+- Suggested criteria come from the compiler, which writes its own text and image prompts.
+  There are no per-domain suggestion lists, image-feature templates, or default criteria.
+- Source recipes remain the place where a site's own structure is understood. They must
+  expose generic fields; nothing in discovery, collection, or scoring may depend on a domain
+  label.
+- `soft` briefs from before brief-owned criteria migrate only for the core vocabulary
+  (`price`, `condition`); anything else is dropped with a warning.
 
-Discovery query templates live on source integrations, not packs (ADR 0013). An unknown or
-omitted pack resolves to the generic preset (ADR 0015).
-
-The brief owns `criteria`; adding a criterion does not require changing the pack. Adding a
-pack must not require changes to the runner, scorer, store, or feedback protocol.
-
-| Pack | Status |
-| --- | --- |
-| generic | v1 (fallback vocabulary) |
-| property | v1 |
-| cars | v1 |
-| laptops | v1 |
+The brief owns `criteria`; adding a criterion never requires touching a preset, the runner,
+the scorer, the store, or the feedback protocol.
 
 ## 18. Milestones
 

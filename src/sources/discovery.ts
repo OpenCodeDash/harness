@@ -1,6 +1,6 @@
 export interface SourceQueryTemplate {
   template: string;
-  /** Pack/domain ids this template is relevant to. Omitted applies to all. */
+  /** Domain hints this template fits; omitted applies to all. */
   domains?: string[];
   /** Placeholders that must be non-empty for the template to render. */
   requires?: string[];

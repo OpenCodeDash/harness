@@ -1,11 +1,10 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import { allFields, genericPack } from "../domain/generic.ts";
-import type { CriterionSpec, DomainPack } from "../domain/types.ts";
+import { FIELDS } from "../domain/fields.ts";
+import type { CriterionSpec } from "../domain/types.ts";
 import { criterionFactKey } from "../domain/types.ts";
 import {
   CriterionSchema,
-  criterionFromImageFeature,
   fallbackCriteria,
   legacyCriteria,
   normaliseCriteria,
@@ -113,22 +112,15 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   ) as T;
 }
 
-export function fromYaml(raw: BriefYaml, pack?: DomainPack): Brief {
+export function fromYaml(raw: BriefYaml): Brief {
   const warnings = [...(raw.warnings ?? [])];
   const commute = raw.anchors?.commute;
 
   let criteria: CriterionSpec[];
   if (raw.criteria?.length) {
-    criteria = normaliseCriteria(raw.criteria, pack, warnings);
+    criteria = normaliseCriteria(raw.criteria, warnings);
   } else if (raw.soft?.length) {
-    const migrationPack = pack ?? genericPack;
-    criteria = normaliseCriteria(
-      legacyCriteria(migrationPack, raw.soft, warnings),
-      migrationPack,
-      warnings,
-    );
-  } else if (pack) {
-    criteria = fallbackCriteria(pack);
+    criteria = normaliseCriteria(legacyCriteria(raw.soft, warnings), warnings);
   } else {
     criteria = [];
   }
@@ -136,7 +128,7 @@ export function fromYaml(raw: BriefYaml, pack?: DomainPack): Brief {
   const budgets = raw.budgets ?? {};
   return {
     version: raw.version ?? 1,
-    domain: raw.domain ?? pack?.id ?? "generic",
+    domain: raw.domain ?? "generic",
     prompt: raw.prompt ?? "",
     anchors: {
       work: raw.anchors?.work,
@@ -231,13 +223,13 @@ export function toYaml(brief: Brief): BriefYaml {
   }) as BriefYaml;
 }
 
-export function parseBrief(text: string, pack?: DomainPack): Brief {
-  return fromYaml(BriefYamlSchema.parse(parseYaml(text)), pack);
+export function parseBrief(text: string): Brief {
+  return fromYaml(BriefYamlSchema.parse(parseYaml(text)));
 }
 
-export function parseBriefData(data: unknown, pack?: DomainPack): Brief {
-  if (typeof data === "string") return parseBrief(data, pack);
-  return fromYaml(BriefYamlSchema.parse(data), pack);
+export function parseBriefData(data: unknown): Brief {
+  if (typeof data === "string") return parseBrief(data);
+  return fromYaml(BriefYamlSchema.parse(data));
 }
 
 export function serializeBrief(brief: Brief): string {
@@ -245,11 +237,11 @@ export function serializeBrief(brief: Brief): string {
 }
 
 export interface BriefExtractor {
-  extract(input: { prompt: string; pack: DomainPack }): Promise<unknown>;
+  extract(input: { prompt: string }): Promise<unknown>;
 }
 
-export function resolveKey(pack: DomainPack, key: string): string | null {
-  const items = [...allFields(pack), ...pack.imageFeatures];
+export function resolveKey(key: string): string | null {
+  const items = FIELDS;
   const normalise = (value: string) => value.trim().toLowerCase();
   const matches = (candidate: string, item: (typeof items)[number]) => {
     const value = normalise(candidate);
@@ -271,27 +263,19 @@ export function resolveKey(pack: DomainPack, key: string): string | null {
   return null;
 }
 
-export function briefFromExtraction(
-  prompt: string,
-  pack: DomainPack,
-  raw: unknown,
-): Brief {
+export function briefFromExtraction(prompt: string, raw: unknown): Brief {
   const parsed = BriefYamlSchema.parse(raw ?? {});
   const warnings = [...(parsed.warnings ?? [])];
   let criteria = parsed.criteria?.length
-    ? normaliseCriteria(parsed.criteria, pack, warnings)
+    ? normaliseCriteria(parsed.criteria, warnings)
     : parsed.soft?.length
-      ? normaliseCriteria(
-          legacyCriteria(pack, parsed.soft, warnings),
-          pack,
-          warnings,
-        )
+      ? normaliseCriteria(legacyCriteria(parsed.soft, warnings), warnings)
       : [];
 
   if (criteria.length === 0) {
-    criteria = fallbackCriteria(pack);
+    criteria = fallbackCriteria();
     warnings.push(
-      `no criteria were extracted; using ${pack.id} suggestions as a fallback`,
+      "no criteria were extracted; using core price and condition suggestions as a fallback",
     );
   }
 
@@ -304,14 +288,14 @@ export function briefFromExtraction(
   if (hard.required) {
     const resolved: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(hard.required)) {
-      resolved[resolveKey(pack, key) ?? key] = value;
+      resolved[resolveKey(key) ?? key] = value;
     }
     hard.required = resolved;
   }
 
   const brief: Brief = {
     version: 1,
-    domain: pack.id,
+    domain: parsed.domain ?? "generic",
     prompt,
     anchors: {
       work: parsed.anchors?.work,
@@ -374,11 +358,10 @@ export function briefFromExtraction(
 
 export async function compileBrief(
   prompt: string,
-  pack: DomainPack,
   extractor: BriefExtractor,
 ): Promise<Brief> {
-  const raw = await extractor.extract({ prompt, pack });
-  return briefFromExtraction(prompt, pack, raw);
+  const raw = await extractor.extract({ prompt });
+  return briefFromExtraction(prompt, raw);
 }
 
 function sourceScopeAssumptions(sources: SourceScope): string[] {
@@ -449,11 +432,7 @@ function deriveAssumptions(brief: Brief): string[] {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-export function applyBriefDelta(
-  brief: Brief,
-  delta: BriefDelta,
-  pack?: DomainPack,
-): Brief {
+export function applyBriefDelta(brief: Brief, delta: BriefDelta): Brief {
   const next = structuredClone(brief);
   next.version = brief.version + 1;
 
@@ -465,25 +444,9 @@ export function applyBriefDelta(
   }
 
   if (delta.addCriteria?.length) {
-    const added = normaliseCriteria(delta.addCriteria, pack, next.warnings);
+    const added = normaliseCriteria(delta.addCriteria, next.warnings);
     const byKey = new Map(next.criteria.map((criterion) => [criterion.key, criterion]));
     for (const criterion of added) byKey.set(criterion.key, criterion);
-    next.criteria = [...byKey.values()];
-  }
-
-  if (delta.features?.length && pack) {
-    const byKey = new Map(next.criteria.map((criterion) => [criterion.key, criterion]));
-    for (const featureKey of delta.features) {
-      const feature = pack.imageFeatures.find(
-        (candidate) =>
-          candidate.key === featureKey ||
-          (candidate.aliases ?? []).includes(featureKey) ||
-          candidate.label.toLowerCase() === featureKey.toLowerCase(),
-      );
-      if (!feature) continue;
-      const criterion = criterionFromImageFeature(feature);
-      byKey.set(criterion.key, criterion);
-    }
     next.criteria = [...byKey.values()];
   }
 

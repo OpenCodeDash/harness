@@ -115,7 +115,6 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
         if (!prompt) return send(res, 400, { error: "prompt is required" });
         const preview = await manager.preview({
           prompt,
-          pack: typeof body.pack === "string" ? body.pack : undefined,
         });
         return send(res, 200, {
           brief: toYaml(preview.brief),
@@ -146,8 +145,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
           const runtime = await manager.create({
             prompt,
             brief,
-            pack: typeof body.pack === "string" ? body.pack : undefined,
-            name: typeof body.name === "string" ? body.name : undefined,
+              name: typeof body.name === "string" ? body.name : undefined,
           });
           manager.start(runtime.record.id);
           return send(res, 202, { campaign: manager.status(runtime) });

@@ -7,13 +7,11 @@ import {
 import { echoBrief, serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
-import type { DomainPack } from "../domain/types.ts";
 import { applyFeedback } from "../feedback/interpret.ts";
 import { persistScores, scoreCampaign } from "../runner/score.ts";
 
 export interface ControlState {
   store: CampaignStore;
-  pack: DomainPack;
   brief: Brief;
   paused: boolean;
   token?: string;
@@ -61,7 +59,7 @@ function send(
 }
 
 function statusBody(state: ControlState) {
-  const scored = scoreCampaign(state.store, state.brief, state.pack);
+  const scored = scoreCampaign(state.store, state.brief);
   const latest = state.store.latestBrief();
   return {
     paused: state.paused,
@@ -101,7 +99,7 @@ export function createControlServer(state: ControlState): ControlServer {
       }
 
       if (req.method === "GET" && path === "/export.csv") {
-        const scored = scoreCampaign(state.store, state.brief, state.pack);
+        const scored = scoreCampaign(state.store, state.brief);
         res.setHeader(
           "content-disposition",
           'attachment; filename="latest.csv"',
@@ -114,7 +112,7 @@ export function createControlServer(state: ControlState): ControlServer {
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) return send(res, 400, { error: "text is required" });
 
-        const applied = applyFeedback(state.brief, text, state.pack);
+        const applied = applyFeedback(state.brief, text);
         const feedback = state.store.addFeedback(
           text,
           applied.delta.action,
@@ -134,7 +132,7 @@ export function createControlServer(state: ControlState): ControlServer {
           serializeBrief(state.brief),
           state.brief.prompt,
         );
-        const scored = scoreCampaign(state.store, state.brief, state.pack);
+        const scored = scoreCampaign(state.store, state.brief);
         persistScores(state.store, version.id, scored.items);
         state.store.markFeedbackApplied(feedback.id);
 

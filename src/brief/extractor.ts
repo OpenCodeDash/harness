@@ -1,5 +1,4 @@
-import { allFields } from "../domain/generic.ts";
-import type { DomainPack } from "../domain/types.ts";
+import { FIELDS } from "../domain/fields.ts";
 import type { ResponsesClient } from "../vision/responses.ts";
 import type { BriefExtractor } from "./brief.ts";
 
@@ -209,7 +208,7 @@ function nullable(schema: Record<string, unknown>): Record<string, unknown> {
   return { anyOf: [schema, { type: "null" }] };
 }
 
-function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
+function buildExtractionSchema(): Record<string, unknown> {
   return {
     type: "object",
     properties: {
@@ -355,16 +354,13 @@ function stripNulls(value: unknown): unknown {
   return value;
 }
 
-export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
-  const fields = allFields(pack)
-    .map((field) => `- ${field.key} (${field.label}, ${field.kind})`)
-    .join("\n");
-  const imageFeatures = pack.imageFeatures
-    .map((feature) => `- ${feature.key}: ${feature.prompt}`)
-    .join("\n");
+export function buildBriefPrompt(prompt: string): string {
+  const fields = FIELDS.map(
+    (field) => `- ${field.key} (${field.label}, ${field.kind})`,
+  ).join("\n");
 
   return [
-    `Convert this research request into a brief for ${pack.label}.`,
+    "Convert this research request into a brief.",
     "",
     "Rules:",
     "- Extract every criterion the user explicitly asks for, including hard limits.",
@@ -378,7 +374,7 @@ export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
     "- Normalizers encode preference: for a bad thing (damp, mould), boolean prefer must be false.",
     "- Mark origin explicit for things the user asked for and suggested for your additions.",
     "- Suggested criteria must not have hard constraints. Hard constraints only come from stated limits.",
-    "- Use rent_max/bedrooms/areas only for property rentals. For other domains express limits as hard predicates on the relevant criterion (for example price with op lte).",
+    "- Use rent_max/bedrooms/areas only when the request is about property rentals. Otherwise express limits as hard predicates on the relevant criterion (for example price with op lte).",
     "- If the request mentions work or \"near work\", set anchors.work.address to the best available place name (e.g. \"Wellington CBD\") so commute can be computed.",
     "- Use field sources only for the available fields. For anything else, use text/image facts.",
     "- Only set sources when the user names sites or limits the search. allow/deny/prefer take source ids or hosts (for example trademe or trademe.co.nz). web defaults to open; use structured-only to skip generic HTML and off to search only allow-listed sources.",
@@ -387,9 +383,6 @@ export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
     "",
     "Available fields:",
     fields || "(none)",
-    "",
-    "Available image feature templates (use these as suggestions or write your own prompts):",
-    imageFeatures || "(none)",
     "",
     "Derived evaluators: commute, price_per_bedroom, price_per_bathroom.",
     "",
@@ -403,20 +396,15 @@ export class ResponsesBriefExtractor implements BriefExtractor {
     private readonly model: string,
   ) {}
 
-  async extract(input: {
-    prompt: string;
-    pack: DomainPack;
-  }): Promise<unknown> {
+  async extract(input: { prompt: string }): Promise<unknown> {
     const result = await this.client.structured<Record<string, unknown>>({
       model: this.model,
       name: "brief",
-      schema: buildExtractionSchema(input.pack),
+      schema: buildExtractionSchema(),
       input: [
         {
           role: "user",
-          content: [
-            { type: "input_text", text: buildBriefPrompt(input.prompt, input.pack) },
-          ],
+          content: [{ type: "input_text", text: buildBriefPrompt(input.prompt) }],
         },
       ],
     });

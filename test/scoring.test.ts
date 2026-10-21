@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BUDGETS, DEFAULT_SOURCE_SCOPE, type Brief } from "../src/brief/types.ts";
-import { propertyPack } from "../src/domain/property.ts";
 import type { CriterionSpec } from "../src/domain/types.ts";
 import {
   isTie,
@@ -13,10 +12,6 @@ import {
 } from "../src/scoring/score.ts";
 
 function criterionFor(key: string, weight: number): CriterionSpec {
-  const definition = propertyPack.defaultCriteria.find(
-    (candidate) => candidate.key === key,
-  );
-  if (definition) return { ...definition, weight, origin: "explicit" };
   return {
     key,
     label: key,
@@ -101,12 +96,11 @@ test("scores fully-known listings", () => {
   });
   const result = scoreListing(
     brief,
-    propertyPack,
     facts(
       fact("rent", 600),
       fact("bedrooms", 2),
       fact("parking", true),
-      fact("sunlight", "high"),
+      fact("sunlight", true),
     ),
   );
 
@@ -125,8 +119,7 @@ test("unknown is flagged by default and excluded from the score mass", () => {
   });
   const result = scoreListing(
     brief,
-    propertyPack,
-    facts(fact("sunlight", "high")),
+    facts(fact("sunlight", true)),
   );
 
   assert.equal(result.score, 1);
@@ -146,8 +139,7 @@ test("unknown can be penalised instead of flagged", () => {
   });
   const result = scoreListing(
     brief,
-    propertyPack,
-    facts(fact("sunlight", "high")),
+    facts(fact("sunlight", true)),
   );
 
   assert.equal(result.score, 0.5);
@@ -160,7 +152,6 @@ test("low-confidence facts are treated as unknown", () => {
   const brief = makeBrief({ soft: [{ key: "parking", weight: 1 }] });
   const result = scoreListing(
     brief,
-    propertyPack,
     facts(fact("parking", true, { confidence: 0.2 })),
   );
 
@@ -181,7 +172,6 @@ test("hard constraints fail loudly with reasons", () => {
   });
   const result = scoreListing(
     brief,
-    propertyPack,
     facts(
       fact("rent", 700),
       fact("bedrooms", 4),
@@ -202,7 +192,6 @@ test("hard constraints fail loudly with reasons", () => {
 test("missing hard facts are failures, not passes", () => {
   const result = scoreListing(
     makeBrief({ hard: { rentMax: 650, bedrooms: { min: 2 } } }),
-    propertyPack,
     facts(),
   );
   assert.equal(result.hardPass, false);
@@ -235,8 +224,7 @@ test("zero-weight criteria are ignored and dynamic criteria are scored", () => {
   });
   const result = scoreListing(
     brief,
-    propertyPack,
-    facts(fact("sunlight", "high"), fact("mystery", true)),
+    facts(fact("sunlight", true), fact("mystery", true)),
   );
 
   assert.equal(result.score, 1);
@@ -260,7 +248,6 @@ test("area matching uses suburb, address, district, and region", () => {
   const brief = makeBrief({ hard: { areas: ["Wellington"] } });
   const pass = scoreListing(
     brief,
-    propertyPack,
     facts(
       fact("suburb", "Johnsonville"),
       fact("district", "Wellington"),
@@ -271,7 +258,6 @@ test("area matching uses suburb, address, district, and region", () => {
 
   const fail = scoreListing(
     brief,
-    propertyPack,
     facts(fact("suburb", "Ponsonby"), fact("district", "Auckland")),
   );
   assert.equal(fail.hardPass, false);
@@ -282,7 +268,6 @@ test("region alone does not satisfy a city area filter", () => {
   const brief = makeBrief({ hard: { areas: ["Wellington"] } });
   const result = scoreListing(
     brief,
-    propertyPack,
     facts(fact("suburb", "Titahi Bay"), fact("district", "Porirua"), fact("region", "Wellington")),
   );
   assert.equal(result.hardPass, false);
@@ -317,7 +302,6 @@ test("dynamic criteria read field sources, prefer false, and hard predicates", (
 
   const pass = scoreListing(
     brief,
-    propertyPack,
     facts(fact("rent", 600), fact("damp", false)),
   );
   assert.equal(pass.hardPass, true);
@@ -329,7 +313,6 @@ test("dynamic criteria read field sources, prefer false, and hard predicates", (
 
   const fail = scoreListing(
     brief,
-    propertyPack,
     facts(fact("rent", 700), fact("damp", true)),
   );
   assert.equal(fail.hardPass, false);

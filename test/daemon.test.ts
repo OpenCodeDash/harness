@@ -7,7 +7,6 @@ import { briefFromExtraction } from "../src/brief/brief.ts";
 import { CampaignManager } from "../src/daemon/manager.ts";
 import { createDaemonServer } from "../src/daemon/server.ts";
 import type { SearchProvider } from "../src/discovery/searxng.ts";
-import { propertyPack } from "../src/domain/property.ts";
 import type { BrowserProvider, RunnerPage } from "../src/runner/loop.ts";
 
 const SEARCH_URL =
@@ -61,13 +60,23 @@ class FakeSearch implements SearchProvider {
 }
 
 function makeBrief() {
-  return briefFromExtraction("demo", propertyPack, {
+  return briefFromExtraction("demo", {
     hard: {
       rent_max: 650,
       bedrooms: { min: 1, max: 4 },
       areas: ["Wellington"],
     },
-    soft: [{ key: "parking", weight: 0.5 }],
+    criteria: [
+      {
+        key: "parking",
+        label: "Parking",
+        weight: 0.5,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "parking" },
+        origin: "explicit",
+      },
+    ],
     budgets: { max_listings: 10, max_usd: 15, max_minutes: 5, vision_max: 5 },
   });
 }

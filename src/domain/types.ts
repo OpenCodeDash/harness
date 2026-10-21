@@ -68,6 +68,7 @@ export interface FieldDef {
   aliases?: string[];
 }
 
+/** A vision request derived from an image criterion. */
 export interface ImageFeatureDef {
   key: string;
   label: string;
@@ -75,26 +76,4 @@ export interface ImageFeatureDef {
   kind: "boolean" | "enum" | "number";
   options?: string[];
   aliases?: string[];
-}
-
-export interface DomainPack {
-  id: string;
-  label: string;
-  fields: FieldDef[];
-  imageFeatures: ImageFeatureDef[];
-  defaultCriteria: CriterionSpec[];
-}
-
-export function findField(
-  pack: DomainPack,
-  key: string,
-): FieldDef | undefined {
-  return pack.fields.find((field) => field.key === key);
-}
-
-export function findImageFeature(
-  pack: DomainPack,
-  key: string,
-): ImageFeatureDef | undefined {
-  return pack.imageFeatures.find((feature) => feature.key === key);
 }

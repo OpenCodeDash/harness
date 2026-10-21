@@ -72,7 +72,6 @@ export interface BriefDelta {
   addAreas?: string[];
   addAssumptions?: string[];
   removeAssumptions?: string[];
-  features?: string[];
   queries?: string[];
   note?: string;
 }
