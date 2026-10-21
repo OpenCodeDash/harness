@@ -199,5 +199,5 @@ test("generic recipe is a fallback and site recipes win", () => {
     )?.id,
     "trademe",
   );
-  assert.equal(jsonLdRecipe.isListing("https://shop.test/product/1"), true);
+  assert.equal(jsonLdRecipe.isListing("https://shop.test/product/1"), false);
 });

@@ -21,5 +21,6 @@ One decision per file. Status is `proposed`, `accepted`, or `superseded`.
 | [0015](0015-optional-domain-packs.md) | Domain packs are optional presets with a generic fallback | superseded by 0017 |
 | [0016](0016-generic-html-fallback.md) | Generic HTML text fallback for non-JSON-LD pages | accepted |
 | [0017](0017-remove-domain-packs.md) | Remove domain packs; one canonical field vocabulary | accepted |
+| [0018](0018-runtime-page-classification.md) | Classify pages at runtime and expand index pages | accepted |
 
 Add a new ADR rather than editing an accepted one; supersede it instead.

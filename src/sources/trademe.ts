@@ -55,10 +55,15 @@ export function extractSearchListings(state: unknown): unknown[] {
       url: canonical ? `https://www.trademe.co.nz/a${canonical}` : "",
       fields: {
         title: item.title,
+        price: parseMoney(item.priceDisplay),
         rent:
           typeof item.rentPerWeek === "number"
             ? item.rentPerWeek
             : parseMoney(item.priceDisplay),
+        condition: item.condition,
+        brand: item.brand,
+        model: item.model,
+        location: item.suburb ?? item.district ?? item.region,
         bedrooms: item.bedrooms,
         bathrooms: item.bathrooms,
         parking:
@@ -118,8 +123,12 @@ export function extractListingDetail(state: unknown): unknown {
 
   const attributes = Array.isArray(item.attributes) ? item.attributes : [];
   const attribute = (name: string): string | undefined => {
+    const target = name.trim().toLowerCase();
     const found = attributes.find(
-      (entry) => (entry as { name?: string })?.name === name,
+      (entry) =>
+        String((entry as { name?: unknown })?.name ?? "")
+          .trim()
+          .toLowerCase() === target,
     );
     return found ? String((found as { value?: unknown }).value ?? "") : undefined;
   };
@@ -147,7 +156,32 @@ export function extractListingDetail(state: unknown): unknown {
     externalId: String(item.listingId ?? id),
     url: canonical ? `https://www.trademe.co.nz/a${canonical}` : "",
     fields: {
+      title: item.title,
       description: item.body,
+      price: parseNumber(item.priceDisplay),
+      condition: item.condition ?? attribute("condition"),
+      brand: item.brand ?? attribute("brand"),
+      model: item.model ?? attribute("model"),
+      location: item.suburb ?? item.district ?? item.region,
+      specs: Object.fromEntries(
+        attributes
+          .map((entry) => entry as { name?: unknown; value?: unknown })
+          .filter(
+            (entry) =>
+              typeof entry.name === "string" &&
+              entry.value !== undefined &&
+              entry.value !== null &&
+              String(entry.value).trim() !== "",
+          )
+          .map((entry) => [
+            String(entry.name)
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "_")
+              .replace(/^_+|_+$/g, ""),
+            String(entry.value),
+          ]),
+      ),
       rent:
         typeof item.rentPerWeek === "number"
           ? item.rentPerWeek
@@ -186,7 +220,7 @@ export function isTradeMeListingUrl(url: string): boolean {
 
 export const trademeRecipe: Recipe = {
   id: "trademe",
-  domain: "property",
+  domain: "trademe",
   version: 1,
   priority: 10,
   discovery: {
@@ -250,11 +284,7 @@ export const trademeRecipe: Recipe = {
   },
   matches: (url) => {
     try {
-      const parsed = new URL(url);
-      return (
-        parsed.hostname.endsWith("trademe.co.nz") &&
-        /\/a\/property\/residential\/rent\//.test(parsed.pathname)
-      );
+      return new URL(url).hostname.endsWith("trademe.co.nz");
     } catch {
       return false;
     }

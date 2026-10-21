@@ -479,7 +479,7 @@ export const jsonLdRecipe: Recipe = {
     ],
   },
   matches: (url) => /^https?:\/\//i.test(url) && !NON_HTML.test(url),
-  isListing: () => true,
+  isListing: () => false,
   searchReady: `() => document.readyState !== 'loading'`,
   listingReady: `() => document.readyState !== 'loading'`,
   searchScript: `() => {
@@ -504,7 +504,11 @@ export const jsonLdRecipe: Recipe = {
       try { documents.push(JSON.parse(raw)); } catch (error) {}
     }
     const listings = (${extractJsonLdListings.toString()})(documents, location.href);
-    if (listings.length) return listings[0];
+    const clean = (value) =>
+      String(value || '').replace(/[?#].*$/, '').replace(/[/]+$/, '');
+    const self = listings.find((entry) => clean(entry.url) === clean(location.href));
+    if (self) return self;
+    if (listings.length === 1) return listings[0];
     return (${extractFallbackListing.toString()})(document, location.href);
   }`,
 };

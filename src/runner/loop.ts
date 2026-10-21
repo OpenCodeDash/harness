@@ -5,7 +5,7 @@ import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
 import type { ImageFeatureDef } from "../domain/types.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
-import type { SearchProvider } from "../discovery/searxng.ts";
+import { canonicalUrl, type SearchProvider } from "../discovery/searxng.ts";
 import type { CachedGeoService } from "../geo/service.ts";
 import type { GeoPoint } from "../geo/types.ts";
 import { selectFacts, scoreListing } from "../scoring/score.ts";
@@ -297,44 +297,68 @@ export async function runCampaign(
       let page: RunnerPage | null = null;
       try {
         page = await deps.browser.newPage(url);
-        const items = recipe.isListing(url)
-          ? [await runListing(page, recipe, url)]
-          : await runSearch(page, recipe, url);
-
-        const ingested: RawListing[] = [];
-        for (const item of items) {
-          if (!allowFallback(item)) continue;
-          ingest(store, recipe, item, observe);
-          ingested.push(item);
-          collected += 1;
-          if (collected >= brief.budgets.maxListings) break;
+        const pageKey = canonicalUrl(url);
+        let items: RawListing[];
+        let kind: "listing" | "index";
+        if (recipe.isListing(url)) {
+          items = [await runListing(page, recipe, url)];
+          kind = "listing";
+        } else {
+          items = await runSearch(page, recipe, url);
+          const distinct = items.filter(
+            (item) => canonicalUrl(item.url) !== pageKey,
+          );
+          if (distinct.length > 0) {
+            kind = "index";
+          } else if (items.length <= 1) {
+            kind = "listing";
+            items = items.slice(0, 1);
+          } else {
+            kind = "index";
+          }
         }
-        if (collected >= brief.budgets.maxListings) {
-          budgetHit = true;
-        }
 
-        if (
-          !recipe.isListing(url) &&
-          deps.visitDetails !== false &&
-          detailCount < detailLimit
-        ) {
-          for (const item of ingested) {
-            if (detailCount >= detailLimit) break;
-            if (paused()) break;
-            let detailPage: RunnerPage | null = null;
-            try {
-              detailPage = await deps.browser.newPage(item.url);
-              const detail = await runListing(detailPage, recipe, item.url);
-              if (allowFallback(detail)) {
-                ingest(store, recipe, detail, observe);
+        if (items.length === 0) {
+          const text = `no listing data on ${url}`;
+          errors.push(text);
+          log("error", text);
+        } else {
+          const ingested: RawListing[] = [];
+          for (const item of items) {
+            if (!allowFallback(item)) continue;
+            ingest(store, recipe, item, observe);
+            ingested.push(item);
+            collected += 1;
+            if (collected >= brief.budgets.maxListings) break;
+          }
+          if (collected >= brief.budgets.maxListings) {
+            budgetHit = true;
+          }
+
+          if (
+            kind === "index" &&
+            deps.visitDetails !== false &&
+            detailCount < detailLimit
+          ) {
+            for (const item of ingested) {
+              if (detailCount >= detailLimit) break;
+              if (paused()) break;
+              if (canonicalUrl(item.url) === pageKey) continue;
+              let detailPage: RunnerPage | null = null;
+              try {
+                detailPage = await deps.browser.newPage(item.url);
+                const detail = await runListing(detailPage, recipe, item.url);
+                if (allowFallback(detail)) {
+                  ingest(store, recipe, detail, observe);
+                }
+                detailCount += 1;
+              } catch (error) {
+                const text = `detail ${item.url}: ${message(error)}`;
+                errors.push(text);
+                log("error", text);
+              } finally {
+                await detailPage?.close();
               }
-              detailCount += 1;
-            } catch (error) {
-              const text = `detail ${item.url}: ${message(error)}`;
-              errors.push(text);
-              log("error", text);
-            } finally {
-              await detailPage?.close();
             }
           }
         }
