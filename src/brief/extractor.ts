@@ -287,6 +287,20 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
         type: "string",
         enum: ["flag", "penalize", "investigate"],
       },
+      sources: {
+        type: "object",
+        properties: {
+          allow: nullable({ type: "array", items: { type: "string" } }),
+          deny: nullable({ type: "array", items: { type: "string" } }),
+          prefer: nullable({ type: "array", items: { type: "string" } }),
+          web: nullable({
+            type: "string",
+            enum: ["open", "structured-only", "off"],
+          }),
+        },
+        required: ["allow", "deny", "prefer", "web"],
+        additionalProperties: false,
+      },
       budgets: {
         type: "object",
         properties: {
@@ -305,6 +319,7 @@ function buildExtractionSchema(pack: DomainPack): Record<string, unknown> {
       "anchors",
       "criteria",
       "unknown_policy",
+      "sources",
       "budgets",
       "assumptions",
     ],
@@ -364,6 +379,7 @@ export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
     "- Use rent_max/bedrooms/areas only for property rentals. For other domains express limits as hard predicates on the relevant criterion (for example price with op lte).",
     "- If the request mentions work or \"near work\", set anchors.work.address to the best available place name (e.g. \"Wellington CBD\") so commute can be computed.",
     "- Use field sources only for the available fields. For anything else, use text/image facts.",
+    "- Only set sources when the user names sites or limits the search. allow/deny/prefer take source ids or hosts (for example trademe or trademe.co.nz). web defaults to open; use structured-only to skip generic HTML and off to search only allow-listed sources.",
     "- Weights are 0..1. Explicit criteria should carry the user's intent; suggested criteria default lower.",
     "- Do not invent facts. Criteria are what to look for; evidence comes later.",
     "",

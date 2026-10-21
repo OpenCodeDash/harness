@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_BUDGETS, type Brief } from "../src/brief/types.ts";
+import { DEFAULT_BUDGETS, DEFAULT_SOURCE_SCOPE, type Brief } from "../src/brief/types.ts";
 import type { Listing } from "../src/campaign/types.ts";
 import { propertyPack } from "../src/domain/property.ts";
 import {
@@ -30,6 +30,7 @@ const BRIEF: Brief = {
     },
   ],
   unknownPolicy: "flag",
+  sources: DEFAULT_SOURCE_SCOPE,
   budgets: DEFAULT_BUDGETS,
   assumptions: [],
   warnings: [],

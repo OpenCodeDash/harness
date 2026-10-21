@@ -23,6 +23,21 @@ export interface HardConstraints {
 
 export type UnknownPolicy = "flag" | "penalize" | "investigate";
 
+export type WebScope = "open" | "structured-only" | "off";
+
+export interface SourceScope {
+  /** Source ids or hosts to search. Empty means no allow restriction. */
+  allow?: string[];
+  /** Source ids or hosts to exclude. */
+  deny?: string[];
+  /** Source ids or hosts to query first. */
+  prefer?: string[];
+  /** open: all sources; structured-only: skip generic HTML; off: only allowed sources. */
+  web: WebScope;
+}
+
+export const DEFAULT_SOURCE_SCOPE: SourceScope = { web: "open" };
+
 export interface Budgets {
   maxListings: number;
   maxUsd: number;
@@ -38,6 +53,7 @@ export interface Brief {
   hard: HardConstraints;
   criteria: CriterionSpec[];
   unknownPolicy: UnknownPolicy;
+  sources: SourceScope;
   budgets: Budgets;
   assumptions: string[];
   warnings: string[];

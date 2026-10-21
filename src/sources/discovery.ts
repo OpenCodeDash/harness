@@ -12,6 +12,8 @@ export type SourceQueryTemplateInput = string | SourceQueryTemplate;
 
 export interface SourceDiscovery {
   label: string;
+  /** How this source is extracted. structured-only web scope skips "html". */
+  kind?: "structured" | "html";
   /** Hosts this integration covers, e.g. ["trademe.co.nz"]. */
   sites?: string[];
   queryTemplates?: SourceQueryTemplateInput[];
