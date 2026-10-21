@@ -1,3 +1,4 @@
+import { allFields } from "../domain/generic.ts";
 import type { DomainPack } from "../domain/types.ts";
 import type { ResponsesClient } from "../vision/responses.ts";
 import type { BriefExtractor } from "./brief.ts";
@@ -354,7 +355,7 @@ function stripNulls(value: unknown): unknown {
 }
 
 export function buildBriefPrompt(prompt: string, pack: DomainPack): string {
-  const fields = pack.fields
+  const fields = allFields(pack)
     .map((field) => `- ${field.key} (${field.label}, ${field.kind})`)
     .join("\n");
   const imageFeatures = pack.imageFeatures

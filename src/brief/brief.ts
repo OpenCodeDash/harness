@@ -1,5 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
+import { allFields, genericPack } from "../domain/generic.ts";
 import type { CriterionSpec, DomainPack } from "../domain/types.ts";
 import { criterionFactKey } from "../domain/types.ts";
 import {
@@ -119,12 +120,10 @@ export function fromYaml(raw: BriefYaml, pack?: DomainPack): Brief {
   if (raw.criteria?.length) {
     criteria = normaliseCriteria(raw.criteria, pack, warnings);
   } else if (raw.soft?.length) {
-    if (!pack) {
-      throw new Error("legacy brief with `soft` requires a domain pack");
-    }
+    const migrationPack = pack ?? genericPack;
     criteria = normaliseCriteria(
-      legacyCriteria(pack, raw.soft, warnings),
-      pack,
+      legacyCriteria(migrationPack, raw.soft, warnings),
+      migrationPack,
       warnings,
     );
   } else if (pack) {
@@ -247,7 +246,7 @@ export interface BriefExtractor {
 }
 
 export function resolveKey(pack: DomainPack, key: string): string | null {
-  const items = [...pack.fields, ...pack.imageFeatures];
+  const items = [...allFields(pack), ...pack.imageFeatures];
   const normalise = (value: string) => value.trim().toLowerCase();
   const matches = (candidate: string, item: (typeof items)[number]) => {
     const value = normalise(candidate);

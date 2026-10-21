@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { allFields } from "../domain/generic.ts";
 import type {
   CriterionSpec,
   DerivedEvaluator,
@@ -84,7 +85,7 @@ export function slugifyKey(value: string): string {
 function resolveField(pack: DomainPack | undefined, field: string): string | null {
   if (!pack) return field;
   const value = field.trim().toLowerCase();
-  const found = pack.fields.find(
+  const found = allFields(pack).find(
     (candidate) =>
       candidate.key.toLowerCase() === value ||
       candidate.key.toLowerCase() === value.replace(/\s+/g, "_") ||
@@ -284,7 +285,7 @@ export function legacyCriteria(
     );
 
     if (!found) {
-      const field = pack.fields.find(
+      const field = allFields(pack).find(
         (candidate) =>
           candidate.key.toLowerCase() === key ||
           candidate.label.toLowerCase() === key ||

@@ -116,7 +116,7 @@ function help(): string {
     "  --db <path>        campaign database (default campaigns/default/campaign.db)",
     "  --brief <path>     load a brief from YAML",
     "  --prompt <text>    compile a brief from a prompt via the router",
-    "  --pack <id>        domain pack (default property)",
+    "  --pack <id>        domain pack preset (default property; unknown ids use generic)",
     "  --export <path>    CSV output path",
     "  --media <path>     cached image directory",
     "  --serve [port]     run the control API (default 7331)",

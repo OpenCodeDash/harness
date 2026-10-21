@@ -297,3 +297,35 @@ test("source scope defaults to open web and is echoed", () => {
   );
   assert.match(echoBrief(restricted), /Sources: web off · allow: trademe/);
 });
+
+test("pack field validation includes the generic vocabulary", () => {
+  const brief = briefFromExtraction("anything under 1000", propertyPack, {
+    criteria: [
+      {
+        key: "price",
+        label: "Price",
+        weight: 0.5,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 1000 },
+        source: { type: "field", field: "price" },
+        origin: "explicit",
+      },
+    ],
+  });
+  assert.equal(brief.criteria[0]?.source.type, "field");
+  assert.equal(
+    brief.criteria[0]?.source.type === "field"
+      ? brief.criteria[0].source.field
+      : null,
+    "price",
+  );
+});
+
+test("an unknown pack compiles with the generic vocabulary", async () => {
+  const { getPack } = await import("../src/domain/index.ts");
+  const generic = getPack("spaceships");
+  assert.equal(generic.id, "generic");
+  const brief = briefFromExtraction("find something", generic, {});
+  assert.equal(brief.domain, "generic");
+  assert.ok(brief.criteria.some((criterion) => criterion.key === "price"));
+});
