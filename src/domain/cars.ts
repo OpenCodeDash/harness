@@ -203,20 +203,4 @@ export const carsPack: DomainPack = {
       origin: "suggested",
     },
   ],
-  queryTemplates: [
-    { template: "{prompt}" },
-    { template: "{brand} {model} {year} {area}" },
-    { template: "used car {area} under {price}" },
-    { template: "{body_type} {fuel_type} {area} under {price}" },
-    {
-      template: "{prompt}",
-      source: "trademe",
-      site: "trademe.co.nz/motors",
-    },
-    {
-      template: "{brand} {model} for sale {area}",
-      source: "trademe",
-      site: "trademe.co.nz/motors",
-    },
-  ],
 };

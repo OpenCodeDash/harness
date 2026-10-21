@@ -274,9 +274,10 @@ interface Recipe {
 - Unknown sites without JSON-LD fall back to a single schema-constrained "propose a recipe"
   model call; the result is reviewed and stored as a recipe. There is no freeform browsing
   agent in the runtime (ADR 0010).
-- Query templates may target a source (`{ template, source, site }`). Discovery skips a
-  source-tagged template when that recipe is not registered, so a pack never wastes searches
-  on a source the runner cannot extract.
+- Each source integration owns its discovery templates
+  (`{ template, domains, requires, site }`). Discovery only asks registered sources, filters
+  templates by the brief's domain, and skips templates whose required values are empty. Packs
+  do not own queries (ADR 0013).
 - Rate limits and session handling live in the runner, not in recipes.
 
 ## 12. Image and text evidence
@@ -378,8 +379,9 @@ criteria set:
 - field schema (what recipes can extract)
 - image-feature templates and suggested criteria
 - derived evaluators
-- discovery query templates
 - source recipes
+
+Discovery query templates live on source integrations, not packs (ADR 0013).
 
 The brief owns `criteria`; adding a criterion does not require changing the pack. Adding a
 pack must not require changes to the runner, scorer, store, or feedback protocol.

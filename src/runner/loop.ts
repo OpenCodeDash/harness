@@ -197,7 +197,7 @@ export async function runCampaign(
   };
 
   if (!progress) {
-    const found = await discover(deps, brief, pack, errors, {
+    const found = await discover(deps, brief, errors, {
       progress: (current, total, message) =>
         emit({
           type: "progress",
@@ -455,16 +455,13 @@ export async function runCampaign(
 async function discover(
   deps: RunnerDeps,
   brief: Brief,
-  pack: DomainPack,
   errors: string[],
   report: {
     progress: (current: number, total: number, message: string) => void;
     log: (level: "info" | "error", message: string) => void;
   },
 ): Promise<string[]> {
-  const queries = buildDiscoveryQueries(brief, pack, {
-    sources: listRecipes().map((recipe) => recipe.id),
-  });
+  const queries = buildDiscoveryQueries(brief, listRecipes());
   const seeds = new Set<string>();
 
   for (const [index, query] of queries.entries()) {
