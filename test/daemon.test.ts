@@ -167,7 +167,7 @@ test("feedback re-scores without re-running discovery", async () => {
     await manager.waitForIdle();
     assert.equal(manager.results(runtime.record.id).counts.hardPass, 1);
 
-    const feedback = manager.feedback(
+    const feedback = await manager.feedback(
       runtime.record.id,
       "raise the rent limit to 1000",
     );

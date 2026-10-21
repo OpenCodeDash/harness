@@ -220,24 +220,34 @@ export async function runCampaign(
 
   let discovery: DiscoveryResult | null = null;
   if (!progress) {
-    discovery = await discover(deps, brief, errors, {
-      progress: (current, total, message) =>
-        emit({
-          type: "progress",
-          stage: "discover",
-          current,
-          total,
-          message,
-          discovered,
-          collected,
-          spendUsd: spend,
-        }),
-      log,
-    });
-    seeds = discovery.seeds;
-    discovered = seeds.length;
-    warnings.push(...discovery.warnings);
-    for (const warning of discovery.warnings) log("info", warning);
+    const provided = options.seedUrls ?? brief.seeds;
+    if (provided.length) {
+      seeds = [...new Set(provided)];
+      discovered = seeds.length;
+      log(
+        "info",
+        `using ${seeds.length} provided seed URL(s); skipping discovery`,
+      );
+    } else {
+      discovery = await discover(deps, brief, errors, {
+        progress: (current, total, message) =>
+          emit({
+            type: "progress",
+            stage: "discover",
+            current,
+            total,
+            message,
+            discovered,
+            collected,
+            spendUsd: spend,
+          }),
+        log,
+      });
+      seeds = discovery.seeds;
+      discovered = seeds.length;
+      warnings.push(...discovery.warnings);
+      for (const warning of discovery.warnings) log("info", warning);
+    }
     checkpoint({ stage: "collect", seeds, index: 0 });
     emit({
       type: "stage",
@@ -590,6 +600,15 @@ async function discover(
       report.log("info", text);
       warnings.push(text);
     }
+  }
+  if (brief.queries.length) {
+    const explicit = brief.queries.map((query) => ({ query }));
+    const seen = new Set(explicit.map((entry) => entry.query.toLowerCase()));
+    planned = [
+      ...explicit,
+      ...planned.filter((entry) => !seen.has(entry.query.toLowerCase())),
+    ];
+    report.log("info", `including ${brief.queries.length} user-specified query(ies)`);
   }
   if (!planned.length) {
     planned = buildDiscoveryQueries(brief, selection.active).map((query) => ({

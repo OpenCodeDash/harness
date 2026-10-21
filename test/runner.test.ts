@@ -677,3 +677,25 @@ test("results that no source accepts stop with no-listing-pages", async () => {
     store.close();
   }
 });
+
+test("provided seeds bypass discovery and are collected directly", async () => {
+  const store = CampaignStore.open(":memory:");
+  const seed = "https://shop.test/products/1";
+  const search = new FakeSearch([]);
+  const planner = new FakePlanner([{ query: "should not run" }]);
+  const browser = new FakeBrowser((url) =>
+    url === seed ? [item("1", seed, 600)] : null,
+  );
+  try {
+    const summary = await runCampaign(
+      { store, browser, search, planner, visitDetails: false },
+      { brief: makeBrief({ seeds: [seed] }) },
+    );
+    assert.equal(search.queries.length, 0);
+    assert.equal(summary.discovered, 1);
+    assert.equal(summary.collected, 1);
+    assert.ok(summary.warnings.length === 0 || !summary.warnings.some((w) => w.includes("0 results")));
+  } finally {
+    store.close();
+  }
+});

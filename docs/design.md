@@ -144,6 +144,8 @@ criteria:
     source: { type: text, prompt: "Is the home described as quiet?" }
     origin: explicit
 unknown_policy: flag          # flag | penalize | investigate
+seeds: []                     # optional; collect these URLs directly
+queries: []                   # optional; extra searches
 sources:
   web: open                   # open | structured-only | off
   allow: [trademe]            # optional; source ids or hosts
@@ -242,7 +244,11 @@ coverage = Σ(w_c for known c) / Σ(w_c for all c)
 
 ## 10. Feedback protocol
 
-Every incoming message is classified into exactly one action (ADR 0007):
+Every incoming message is classified into exactly one action (ADR 0007). A schema-constrained
+model call interprets the message into a `BriefDelta`; the regex parser in
+`feedback/interpret.ts` is the fallback when the model is unavailable or understands nothing
+(ADR 0020). The delta can change weights, criteria, hard limits, source scope, seeds, and
+queries.
 
 | Action | Trigger | Work |
 | --- | --- | --- |

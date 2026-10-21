@@ -39,7 +39,9 @@ function makeBrief(
     criteria:
       criteria ?? (soft ?? []).map(({ key, weight }) => criterionFor(key, weight)),
     unknownPolicy: "flag",
-  sources: DEFAULT_SOURCE_SCOPE,
+    sources: DEFAULT_SOURCE_SCOPE,
+    seeds: [],
+    queries: [],
     budgets: DEFAULT_BUDGETS,
     assumptions: [],
     warnings: [],

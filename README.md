@@ -57,6 +57,7 @@ exposes:
 GET  /health
 GET  /campaigns
 POST /campaigns                    {prompt | brief, name?}
+POST /campaigns/:id/feedback       {text}  (model-interpreted delta)
 GET  /campaigns/:id
 GET  /campaigns/:id/results
 GET  /campaigns/:id/export.csv

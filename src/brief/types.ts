@@ -55,6 +55,10 @@ export interface Brief {
   criteria: CriterionSpec[];
   unknownPolicy: UnknownPolicy;
   sources: SourceScope;
+  /** URLs to collect directly; discovery is skipped when present. */
+  seeds: string[];
+  /** Extra searches the user asked for; the planner includes them. */
+  queries: string[];
   budgets: Budgets;
   assumptions: string[];
   warnings: string[];
@@ -72,6 +76,9 @@ export interface BriefDelta {
   addAreas?: string[];
   addAssumptions?: string[];
   removeAssumptions?: string[];
+  sources?: Partial<SourceScope>;
+  seeds?: string[];
+  removeSeeds?: string[];
   queries?: string[];
   note?: string;
 }

@@ -52,6 +52,8 @@ const BudgetsYaml = z.object({
   html_max: z.number().int().nonnegative().optional(),
 });
 
+const SeedSchema = z.string().min(1);
+
 const SourcesYaml = z.object({
   allow: z.array(z.string()).optional(),
   deny: z.array(z.string()).optional(),
@@ -66,6 +68,45 @@ function cleanSourceList(values?: string[]): string[] | undefined {
     ),
   ];
   return cleaned.length ? cleaned : undefined;
+}
+
+export function cleanSeeds(values?: string[]): string[] | undefined {
+  const seeds = new Set<string>();
+  for (const raw of values ?? []) {
+    const value = raw.trim().replace(/[.,;:]+$/, "");
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      seeds.add(url.toString());
+    } catch {
+      // ignore non-URL seed strings
+    }
+  }
+  return seeds.size ? [...seeds] : undefined;
+}
+
+const URL_IN_TEXT = /https?:\/\/[^\s<>"')\]]+/gi;
+
+/** Pull full URLs out of a natural-language request. */
+export function extractSeedUrls(prompt: string): string[] {
+  const found = prompt.match(URL_IN_TEXT) ?? [];
+  return cleanSeeds(found) ?? [];
+}
+
+/** Detect "only from <host>" / "<host> only" and return the bare host. */
+export function detectOnlySite(prompt: string): string | null {
+  const patterns = [
+    /\b(?:only|just)\s+(?:from|on|at|use)?\s*([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i,
+    /\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\s+only\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(prompt);
+    if (match?.[1]) {
+      return match[1].toLowerCase().replace(/^www\./, "");
+    }
+  }
+  return null;
 }
 
 export function normaliseSourceScope(raw?: {
@@ -99,6 +140,8 @@ export const BriefYamlSchema = z.object({
     .optional(),
   unknown_policy: z.enum(["flag", "penalize", "investigate"]).optional(),
   sources: SourcesYaml.optional(),
+  seeds: z.array(SeedSchema).optional(),
+  queries: z.array(z.string().min(1)).optional(),
   budgets: BudgetsYaml.optional(),
   assumptions: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
@@ -149,6 +192,8 @@ export function fromYaml(raw: BriefYaml): Brief {
     criteria,
     unknownPolicy: raw.unknown_policy ?? "flag",
     sources: normaliseSourceScope(raw.sources),
+    seeds: cleanSeeds(raw.seeds) ?? [],
+    queries: raw.queries ?? [],
     budgets: {
       maxListings: budgets.max_listings ?? DEFAULT_BUDGETS.maxListings,
       maxUsd: budgets.max_usd ?? DEFAULT_BUDGETS.maxUsd,
@@ -199,6 +244,8 @@ export function toYaml(brief: Brief): BriefYaml {
     }),
     criteria: brief.criteria.map(criterionToYaml) as BriefYaml["criteria"],
     unknown_policy: brief.unknownPolicy,
+    seeds: brief.seeds.length ? brief.seeds : undefined,
+    queries: brief.queries.length ? brief.queries : undefined,
     sources:
       brief.sources.web === "open" &&
       !brief.sources.allow?.length &&
@@ -293,6 +340,23 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
     hard.required = resolved;
   }
 
+  const promptSeeds = extractSeedUrls(prompt);
+  const seeds = [
+    ...new Set([...(cleanSeeds(parsed.seeds) ?? []), ...promptSeeds]),
+  ];
+  const onlySite = detectOnlySite(prompt);
+  let sources = normaliseSourceScope(parsed.sources);
+  if (onlySite) {
+    sources = normaliseSourceScope({
+      ...sources,
+      allow: [...new Set([...(sources.allow ?? []), onlySite])],
+      web: "off",
+    });
+    warnings.push(
+      `treating "${onlySite}" as an allow-list; open-web discovery is off`,
+    );
+  }
+
   const brief: Brief = {
     version: 1,
     domain: parsed.domain ?? "generic",
@@ -310,7 +374,9 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
     hard,
     criteria,
     unknownPolicy: parsed.unknown_policy ?? "flag",
-    sources: normaliseSourceScope(parsed.sources),
+    sources,
+    seeds,
+    queries: parsed.queries ?? [],
     budgets: {
       maxListings:
         parsed.budgets?.max_listings ?? DEFAULT_BUDGETS.maxListings,
@@ -392,6 +458,16 @@ function sourceScopeAssumptions(sources: SourceScope): string[] {
 function deriveAssumptions(brief: Brief): string[] {
   const assumptions: string[] = [];
   assumptions.push(...sourceScopeAssumptions(brief.sources));
+  if (brief.seeds.length) {
+    assumptions.push(
+      `starting from ${brief.seeds.length} provided URL(s); discovery is skipped`,
+    );
+  }
+  if (brief.queries.length) {
+    assumptions.push(
+      `including ${brief.queries.length} user-specified search(es)`,
+    );
+  }
   const commute = brief.anchors.commute;
   if (commute) {
     assumptions.push(
@@ -478,6 +554,25 @@ export function applyBriefDelta(brief: Brief, delta: BriefDelta): Brief {
     next.hard.areas = [
       ...new Set([...(next.hard.areas ?? []), ...delta.addAreas]),
     ];
+  }
+
+  if (delta.sources) {
+    next.sources = normaliseSourceScope({ ...next.sources, ...delta.sources });
+  }
+
+  if (delta.seeds?.length) {
+    next.seeds = [
+      ...new Set([...next.seeds, ...(cleanSeeds(delta.seeds) ?? [])]),
+    ];
+  }
+
+  if (delta.removeSeeds?.length) {
+    const remove = new Set(delta.removeSeeds);
+    next.seeds = next.seeds.filter((seed) => !remove.has(seed));
+  }
+
+  if (delta.queries?.length) {
+    next.queries = [...new Set([...next.queries, ...delta.queries])];
   }
 
   if (delta.addAssumptions?.length) {

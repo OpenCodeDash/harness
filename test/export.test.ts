@@ -38,6 +38,8 @@ const BRIEF: Brief = {
   ],
   unknownPolicy: "flag",
   sources: DEFAULT_SOURCE_SCOPE,
+  seeds: [],
+  queries: [],
   budgets: DEFAULT_BUDGETS,
   assumptions: [],
   warnings: [],

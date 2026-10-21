@@ -7,7 +7,8 @@ import {
 import { echoBrief, serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
-import { applyFeedback } from "../feedback/interpret.ts";
+import { applyFeedbackWithInterpreter } from "../feedback/model.ts";
+import type { FeedbackInterpreter } from "../feedback/model.ts";
 import { persistScores, scoreCampaign } from "../runner/score.ts";
 
 export interface ControlState {
@@ -15,6 +16,7 @@ export interface ControlState {
   brief: Brief;
   paused: boolean;
   token?: string;
+  feedbackInterpreter?: FeedbackInterpreter;
   runId?: number;
   lastSummary?: unknown;
   onResearch?: (brief: Brief) => Promise<unknown>;
@@ -112,7 +114,11 @@ export function createControlServer(state: ControlState): ControlServer {
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) return send(res, 400, { error: "text is required" });
 
-        const applied = applyFeedback(state.brief, text);
+        const applied = await applyFeedbackWithInterpreter(
+          state.brief,
+          text,
+          state.feedbackInterpreter,
+        );
         const feedback = state.store.addFeedback(
           text,
           applied.delta.action,
