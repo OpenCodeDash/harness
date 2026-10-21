@@ -506,7 +506,7 @@ test("html fallback is budget-gated and tagged with generic provenance", async (
     "https://shop.test/listing/1",
     "https://shop.test/listing/2",
   ];
-  const browser = new FakeBrowser((url) => htmlFallbackItem(url, url));
+  const browser = new FakeBrowser((url) => [htmlFallbackItem(url, url)]);
   try {
     const brief = makeBrief({
       budgets: {
@@ -556,6 +556,54 @@ test("structured-only source scope rejects html fallback listings", async () => 
 
     assert.equal(summary.collected, 0);
     assert.equal(store.listListings().length, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("index pages expand into listings instead of one category row", async () => {
+  const store = CampaignStore.open(":memory:");
+  const index = "https://shop.test/collections/macbooks";
+  const first = "https://shop.test/products/a";
+  const second = "https://shop.test/products/b";
+  const browser = new FakeBrowser((url) => {
+    if (url === index) return [item("a", first, 100), item("b", second, 200)];
+    if (url === first) return item("a", first, 100);
+    if (url === second) return item("b", second, 200);
+    return null;
+  });
+  try {
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch([index]) },
+      { brief: makeBrief() },
+    );
+
+    assert.equal(summary.collected, 2);
+    assert.equal(store.listListings().length, 2);
+    assert.equal(store.findListing("jsonld", index), null);
+    assert.ok(browser.calls.includes(first));
+    assert.ok(browser.calls.includes(second));
+  } finally {
+    store.close();
+  }
+});
+
+test("a page whose items all point at itself is still an index", async () => {
+  const store = CampaignStore.open(":memory:");
+  const index = "https://shop.test/collections/macbooks";
+  const browser = new FakeBrowser(() => [
+    item("a", index, 100),
+    item("b", index, 200),
+  ]);
+  try {
+    const summary = await runCampaign(
+      { store, browser, search: new FakeSearch([index]), visitDetails: false },
+      { brief: makeBrief() },
+    );
+
+    assert.equal(summary.collected, 2);
+    assert.equal(store.listListings().length, 2);
+    assert.equal(store.findListing("jsonld", index), null);
   } finally {
     store.close();
   }

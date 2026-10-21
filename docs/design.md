@@ -280,6 +280,8 @@ interface Recipe {
 - Recipes are deterministic and cheap per listing.
 - Required fields are validated. A missing required field is a **recipe failure**, surfaced as
   an error and a board task — never a partial row.
+- Page kind is decided at runtime (ADR 0018): a page whose extracted items point elsewhere is
+  an index and is expanded into detail visits; the index URL is never stored as a listing.
 - Site recipes win by priority. A generic **JSON-LD fallback** handles any other HTTP page
   that publishes `schema.org` structured data: it flattens `@graph` and `ItemList`, prefers
   listing entities (`Product`, `Vehicle`, `RealEstateListing`, …), and maps name, description,

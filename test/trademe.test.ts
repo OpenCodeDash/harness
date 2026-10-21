@@ -185,3 +185,77 @@ test("recipe registration and URL matching", () => {
   assert.equal(trademeRecipe.isListing(searchUrl), false);
   assert.equal(isTradeMeListingUrl(listingUrl), true);
 });
+
+test("matches non-property listings and emits generic fields", () => {
+  const laptopListing =
+    "https://www.trademe.co.nz/a/marketplace/computers/laptops/laptops/apple/listing/6190696393";
+  const laptopSearch =
+    "https://www.trademe.co.nz/a/marketplace/computers/laptops/laptops/apple/search?search_string=m2";
+  assert.equal(getRecipeFor(laptopListing)?.id, "trademe");
+  assert.equal(getRecipeFor(laptopSearch)?.id, "trademe");
+  assert.equal(trademeRecipe.isListing(laptopListing), true);
+  assert.equal(trademeRecipe.isListing(laptopSearch), false);
+
+  const state = {
+    listing: {
+      cachedSearchResults: {
+        ids: [6190696393],
+        entities: {
+          6190696393: {
+            item: {
+              listingId: 6190696393,
+              title: 'Apple M2 Pro MacBook Pro 14.2" 16GB 512GB',
+              canonicalPath:
+                "/marketplace/computers/laptops/laptops/apple/listing/6190696393",
+              priceDisplay: "$1,999",
+              region: "Auckland",
+              district: "Auckland City",
+              photoUrls: [],
+            },
+          },
+        },
+      },
+    },
+  };
+  const [listing] = extractSearchListings(state) as Array<{
+    fields: Record<string, unknown>;
+  }>;
+  assert.equal(listing?.fields.price, 1999);
+  assert.equal(listing?.fields.location, "Auckland City");
+  assert.equal(listing?.fields.title, 'Apple M2 Pro MacBook Pro 14.2" 16GB 512GB');
+});
+
+test("detail extraction keeps site attributes as specs", () => {
+  const state = {
+    listing: {
+      cachedDetails: {
+        ids: [6190696393],
+        entities: {
+          6190696393: {
+            item: {
+              listingId: 6190696393,
+              title: 'Apple M2 Pro MacBook Pro 14.2" 16GB 512GB',
+              canonicalPath:
+                "/marketplace/computers/laptops/laptops/apple/listing/6190696393",
+              priceDisplay: "$1,999",
+              region: "Auckland",
+              photos: [],
+              attributes: [
+                { name: "RAM Size", value: "16GB" },
+                { name: "Brand", value: "Apple" },
+              ],
+            },
+          },
+        },
+      },
+    },
+  };
+  const detail = extractListingDetail(state) as {
+    fields: Record<string, unknown>;
+  };
+  assert.equal(detail.fields.brand, "Apple");
+  assert.deepEqual(detail.fields.specs, {
+    ram_size: "16GB",
+    brand: "Apple",
+  });
+});
