@@ -330,25 +330,50 @@ export async function runCampaign(
       try {
         page = await deps.browser.newPage(url);
         const pageKey = canonicalUrl(url);
-        let items: RawListing[];
-        let kind: "listing" | "index";
-        if (recipe.isListing(url)) {
-          items = [await runListing(page, recipe, url)];
-          kind = "listing";
-        } else {
-          items = await runSearch(page, recipe, url);
-          const distinct = items.filter(
+        const activePage = page;
+        const extractPage = async (activeRecipe: Recipe) => {
+          if (activeRecipe.isListing(url)) {
+            return {
+              kind: "listing" as const,
+              items: [await runListing(activePage, activeRecipe, url)],
+            };
+          }
+          let extracted = await runSearch(activePage, activeRecipe, url);
+          const distinct = extracted.filter(
             (item) => canonicalUrl(item.url) !== pageKey,
           );
+          let pageKind: "listing" | "index";
           if (distinct.length > 0) {
-            kind = "index";
-          } else if (items.length <= 1) {
-            kind = "listing";
-            items = items.slice(0, 1);
+            pageKind = "index";
+          } else if (extracted.length <= 1) {
+            pageKind = "listing";
+            const single = extracted.slice(0, 1);
+            try {
+              extracted = [await runListing(activePage, activeRecipe, url)];
+            } catch {
+              extracted = single;
+            }
           } else {
-            kind = "index";
+            pageKind = "index";
           }
+          return { kind: pageKind, items: extracted };
+        };
+
+        let usedRecipe = recipe;
+        let extracted: { kind: "listing" | "index"; items: RawListing[] };
+        try {
+          extracted = await extractPage(recipe);
+        } catch (error) {
+          const generic = listRecipes().find((entry) => entry.id === "jsonld");
+          if (!generic || generic.id === recipe.id) throw error;
+          log(
+            "info",
+            `recipe ${recipe.id} failed on ${url}; retrying with generic extraction`,
+          );
+          usedRecipe = generic;
+          extracted = await extractPage(generic);
         }
+        const { items, kind } = extracted;
         if (kind === "index") indexPages += 1;
         else listingPages += 1;
 
@@ -360,7 +385,7 @@ export async function runCampaign(
           const ingested: RawListing[] = [];
           for (const item of items) {
             if (!allowFallback(item)) continue;
-            ingest(store, recipe, item, observe);
+            ingest(store, usedRecipe, item, observe);
             ingested.push(item);
             collected += 1;
             if (collected >= brief.budgets.maxListings) break;
@@ -381,9 +406,9 @@ export async function runCampaign(
               let detailPage: RunnerPage | null = null;
               try {
                 detailPage = await deps.browser.newPage(item.url);
-                const detail = await runListing(detailPage, recipe, item.url);
+                const detail = await runListing(detailPage, usedRecipe, item.url);
                 if (allowFallback(detail)) {
-                  ingest(store, recipe, detail, observe);
+                  ingest(store, usedRecipe, detail, observe);
                 }
                 detailCount += 1;
               } catch (error) {

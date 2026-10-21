@@ -95,7 +95,7 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function getFact(facts: Facts, key: string): Fact | undefined {
+export function factFor(facts: Facts, key: string): Fact | undefined {
   const exact = facts.get(key);
   if (exact) return exact;
   const resolved = resolveSpecKey(key, [...facts.keys()]);
@@ -181,7 +181,7 @@ export function scoreListing(
     }
 
     totalMass += weight;
-    const fact = getFact(facts, criterionFactKey(criterion));
+    const fact = factFor(facts, criterionFactKey(criterion));
     const configured = criterion.unknown ?? brief.unknownPolicy;
     const policy = configured === "investigate" ? "flag" : configured;
     const lowConfidence =
@@ -368,7 +368,7 @@ export function checkHardConstraints(
 
   if (brief.hard.required) {
     for (const [key, expected] of Object.entries(brief.hard.required)) {
-      const fact = getFact(facts, key);
+      const fact = factFor(facts, key);
       if (!fact) failures.push(`${key} unknown`);
       else if (!matches(fact.value, expected)) {
         failures.push(`${key} != ${JSON.stringify(expected)}`);
@@ -395,7 +395,7 @@ export function checkHardConstraints(
 
   for (const criterion of brief.criteria) {
     if (!criterion.hard) continue;
-    const fact = getFact(facts, criterionFactKey(criterion));
+    const fact = factFor(facts, criterionFactKey(criterion));
     if (!fact || fact.confidence < minConfidence) {
       failures.push(`${criterion.label} unknown`);
       continue;

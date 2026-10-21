@@ -406,7 +406,11 @@ export function extractFallbackListing(
 
   const main =
     document.querySelector("main, article, [role='main']") ?? document.body;
-  const bodyText = clean(main?.textContent)?.slice(0, 20_000);
+  const rawText =
+    (main as { innerText?: string } | null)?.innerText ??
+    main?.textContent ??
+    "";
+  const bodyText = clean(rawText)?.slice(0, 20_000);
 
   const title =
     meta('meta[property="og:title"]') ??
@@ -489,6 +493,11 @@ export function extractFallbackListing(
     if (cells.length === 2) addSpec(cells[0], cells[1]);
   }
 
+  for (const line of rawText.split(/\r?\n/)) {
+    const match = /^\s*([A-Za-z][A-Za-z0-9 /%()_-]{1,40}):\s*(.+?)\s*$/.exec(line);
+    if (match) addSpec(match[1], match[2]);
+  }
+
   return {
     externalId,
     url,
@@ -551,10 +560,24 @@ export const jsonLdRecipe: Recipe = {
     const listings = (${extractJsonLdListings.toString()})(documents, location.href);
     const clean = (value) =>
       String(value || '').replace(/[?#].*$/, '').replace(/[/]+$/, '');
+    const fallback = (${extractFallbackListing.toString()})(document, location.href);
+    const merge = (listing, extra) => {
+      if (!listing) return extra;
+      if (!extra) return listing;
+      const fields = { ...(extra.fields || {}), ...(listing.fields || {}) };
+      const specs = {
+        ...((extra.fields && extra.fields.specs) || {}),
+        ...((listing.fields && listing.fields.specs) || {}),
+      };
+      if (Object.keys(specs).length) fields.specs = specs;
+      const media =
+        listing.media && listing.media.length ? listing.media : extra.media || [];
+      return { ...extra, ...listing, fields, media };
+    };
     const self = listings.find((entry) => clean(entry.url) === clean(location.href));
-    if (self) return self;
-    if (listings.length === 1) return listings[0];
-    return (${extractFallbackListing.toString()})(document, location.href);
+    if (self) return merge(self, fallback);
+    if (listings.length === 1) return merge(listings[0], fallback);
+    return fallback;
   }`,
 };
 
