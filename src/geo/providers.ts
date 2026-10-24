@@ -113,10 +113,16 @@ export class OpenRouteServiceRouter implements RoutingProvider {
  * commute criterion still resolves instead of hard-failing every listing.
  * The demo server is rate limited; set OSRM_URL for a self-hosted instance.
  */
+const OSRM_BASES = [
+  "https://routing.openstreetmap.de/routed-car",
+  "https://router.project-osrm.org",
+];
+
 export class OsrmRouter implements RoutingProvider {
   constructor(
     private readonly options: {
       baseUrl?: string;
+      baseUrls?: string[];
       fetchImpl?: typeof fetch;
       profile?: string;
     } = {},
@@ -124,22 +130,31 @@ export class OsrmRouter implements RoutingProvider {
 
   async driveMinutes(from: GeoPoint, to: GeoPoint): Promise<number> {
     const fetchImpl = this.options.fetchImpl ?? fetch;
-    const baseUrl = this.options.baseUrl ?? "https://router.project-osrm.org";
     const profile = this.options.profile ?? "driving";
-    const response = await fetchImpl(
-      `${baseUrl.replace(/\/$/, "")}/route/v1/${profile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`,
-      { headers: { accept: "application/json" } },
-    );
-    if (!response.ok) {
-      throw new Error(`route ${response.status}`);
+    const bases = this.options.baseUrls ?? [
+      this.options.baseUrl ?? OSRM_BASES[0]!,
+      ...(this.options.baseUrl ? [] : OSRM_BASES.slice(1)),
+    ];
+    let lastError: unknown = null;
+    for (const baseUrl of bases) {
+      try {
+        const response = await fetchImpl(
+          `${baseUrl.replace(/\/$/, "")}/route/v1/${profile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`,
+          { headers: { accept: "application/json" } },
+        );
+        if (!response.ok) throw new Error(`route ${response.status}`);
+        const data = (await response.json()) as {
+          routes?: Array<{ duration?: number }>;
+        };
+        const seconds = data.routes?.[0]?.duration;
+        if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+          throw new Error("route returned no duration");
+        }
+        return Math.round((seconds / 60) * 10) / 10;
+      } catch (error) {
+        lastError = error;
+      }
     }
-    const data = (await response.json()) as {
-      routes?: Array<{ duration?: number }>;
-    };
-    const seconds = data.routes?.[0]?.duration;
-    if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
-      throw new Error("route returned no duration");
-    }
-    return Math.round((seconds / 60) * 10) / 10;
+    throw lastError ?? new Error("no OSRM endpoint configured");
   }
 }

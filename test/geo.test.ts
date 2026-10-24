@@ -175,3 +175,24 @@ test("route failures can be observed without guessing a value", async () => {
   assert.equal(seen.length, 1);
   assert.match(String(seen[0]), /429/);
 });
+
+test("OSRM falls back to the next endpoint", async () => {
+  const seen: string[] = [];
+  const router = new OsrmRouter({
+    baseUrls: ["https://down.test", "https://up.test"],
+    fetchImpl: async (input) => {
+      seen.push(String(input));
+      if (String(input).includes("down.test")) throw new Error("fetch failed");
+      return new Response(JSON.stringify({ routes: [{ duration: 600 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  const minutes = await router.driveMinutes(
+    { lat: -41.28, lon: 174.77 },
+    { lat: -41.22, lon: 174.8 },
+  );
+  assert.equal(minutes, 10);
+  assert.equal(seen.length, 2);
+});
