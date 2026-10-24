@@ -643,7 +643,15 @@ export const jsonLdRecipe: Recipe = {
       if (Object.keys(specs).length) fields.specs = specs;
       const media =
         listing.media && listing.media.length ? listing.media : extra.media || [];
-      return { ...extra, ...listing, fields, media };
+      return {
+        ...extra,
+        ...listing,
+        fields,
+        media,
+        fallback: false,
+        sourceRef: undefined,
+        confidence: 1,
+      };
     };
     const self = listings.find((entry) => clean(entry.url) === clean(location.href));
     if (self) return merge(self, fallback);

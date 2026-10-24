@@ -370,3 +370,20 @@ test("feedback can add source scope, seeds, and queries", () => {
   assert.deepEqual(next.seeds, ["https://shop.test/listing/2"]);
   assert.deepEqual(next.queries, ["m2 macbook auckland"]);
 });
+
+test("compiler zero budgets fall back to defaults unless explicitly skipped", () => {
+  const brief = briefFromExtraction("find a laptop", {
+    budgets: { html_max: 0, text_max: 0 },
+  });
+  assert.equal(brief.budgets.htmlMax, 25);
+  assert.equal(brief.budgets.textMax, 50);
+  assert.ok(brief.warnings.some((warning) => warning.includes("html_max 0")));
+  assert.ok(brief.warnings.some((warning) => warning.includes("text_max 0")));
+
+  const skipped = briefFromExtraction(
+    "find a laptop, structured-only, no text",
+    { budgets: { html_max: 0, text_max: 0 } },
+  );
+  assert.equal(skipped.budgets.htmlMax, 0);
+  assert.equal(skipped.budgets.textMax, 0);
+});
