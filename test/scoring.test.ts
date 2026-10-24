@@ -346,3 +346,37 @@ test("field criteria resolve values from specs and parse ranges", () => {
   assert.equal(result.gaps.length, 0);
   assert.equal(normalizeValue({ type: "higher-is-better", max: 64 }, "16 to 31 GB"), 0.25);
 });
+
+test("location-style enum and hard values match inside longer labels", () => {
+  assert.equal(
+    normalizeValue(
+      { type: "enum", scores: { auckland: 1 } },
+      "Auckland City, Auckland",
+    ),
+    1,
+  );
+  assert.equal(
+    normalizeValue({ type: "enum", scores: { auckland: 1 } }, "Franklin"),
+    null,
+  );
+
+  const brief = makeBrief({
+    criteria: [
+      {
+        key: "location",
+        label: "Located in Auckland",
+        weight: 1,
+        kind: "enum",
+        normalizer: { type: "enum", scores: { auckland: 1 } },
+        source: { type: "field", field: "location" },
+        origin: "explicit",
+        hard: { op: "in", values: ["Auckland"] },
+      },
+    ],
+  });
+  const result = scoreListing(
+    brief,
+    facts(fact("location", "Auckland City, Auckland")),
+  );
+  assert.equal(result.hardPass, true);
+});

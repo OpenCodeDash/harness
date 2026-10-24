@@ -156,6 +156,7 @@ budgets:
   max_usd: 15
   max_minutes: 120
   vision_max: 60
+  text_max: 50
   html_max: 25
 assumptions:
   - "near work means <=25 min drive in light traffic"
@@ -332,7 +333,8 @@ Text evidence:
 - Criteria with `source.type: text` run against the listing description. Descriptions are
   archived during detail visits.
 - One schema-constrained model call per listing extracts all text criteria together, capped
-  by `vision_max` and ordered by the pre-text score.
+  by `text_max` and ordered by the pre-text score. Text extraction is independent of vision;
+  setting `vision_max: 0` does not disable text.
 - The description is treated as untrusted data and delimited in the prompt; the model returns
   null when the description does not state a fact.
 - Facts are stored under the criterion key with `source_ref: text:description`, so a
@@ -377,7 +379,7 @@ recipe(id, version, code, last_ok_at)
 
 Stopping is explicit, never "looks good enough":
 
-- `max_listings`, `max_usd`, `max_minutes`, `vision_max`, `html_max`, and diminishing returns (a full
+- `max_listings`, `max_usd`, `max_minutes`, `vision_max`, `text_max`, `html_max`, and diminishing returns (a full
   discovery pass with no new passing listings).
 - Every stop records a `stop_reason`.
 
