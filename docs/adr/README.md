@@ -26,5 +26,6 @@ One decision per file. Status is `proposed`, `accepted`, or `superseded`.
 | [0020](0020-seeds-and-model-feedback.md) | Brief seeds and model-interpreted feedback | accepted |
 | [0021](0021-attribute-specs.md) | Attribute extraction through specs | accepted |
 | [0022](0022-explicit-search-engines.md) | Explicit search engines and enforced site hints | accepted |
+| [0023](0023-osrm-routing-fallback.md) | OSRM routing fallback when no ORS key is configured | accepted |
 
 Add a new ADR rather than editing an accepted one; supersede it instead.

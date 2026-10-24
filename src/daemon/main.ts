@@ -6,7 +6,12 @@ import { McpBrowser } from "../browser/mcp.ts";
 import { connectSearxngMcp } from "../discovery/searxng.ts";
 import { ResponsesQueryPlanner } from "../discovery/planner.ts";
 import { ResponsesFeedbackInterpreter } from "../feedback/model.ts";
-import { NominatimGeocoder, MemoryGeoCache, OpenRouteServiceRouter } from "../geo/providers.ts";
+import {
+  MemoryGeoCache,
+  NominatimGeocoder,
+  OpenRouteServiceRouter,
+  OsrmRouter,
+} from "../geo/providers.ts";
 import { CachedGeoService } from "../geo/service.ts";
 import { ResponsesClient } from "../vision/responses.ts";
 import { extractImageFacts } from "../vision/vision.ts";
@@ -60,15 +65,15 @@ export async function startDaemon(): Promise<void> {
         model,
         extract: (input) => textExtractor.extract(input),
       },
-      geo: process.env.ORS_API_KEY
-        ? new CachedGeoService({
-            geocoder: new NominatimGeocoder(),
-            router: new OpenRouteServiceRouter({
-              apiKey: process.env.ORS_API_KEY,
+      geo: new CachedGeoService({
+        geocoder: new NominatimGeocoder(),
+        router: process.env.ORS_API_KEY
+          ? new OpenRouteServiceRouter({ apiKey: process.env.ORS_API_KEY })
+          : new OsrmRouter({
+              baseUrl: process.env.OSRM_URL,
             }),
-            cache: new MemoryGeoCache(),
-          })
-        : undefined,
+        cache: new MemoryGeoCache(),
+      }),
     },
     feedbackInterpreter: new ResponsesFeedbackInterpreter(router, model),
     compileBrief: (prompt) =>

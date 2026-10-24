@@ -98,5 +98,6 @@ The single-campaign control API is local-only:
 - `ROUTER_BASE_URL` — LLM router base URL (default `http://192.168.68.51:3005/v1`).
 - `HARNESS_MODEL` — Responses-API model (default `opencode-go-gpt-5.6-luna`).
 - `HARNESS_HEADLESS` — set `0` to show the automation browser; headless otherwise.
-- `ORS_API_KEY` — OpenRouteService key for drive-time scoring. Without it, commute is unknown.
+- `ORS_API_KEY` — OpenRouteService key for drive-time scoring. Without it, the harness uses OSRM.
+- `OSRM_URL` — OSRM base URL for the fallback router (default `https://router.project-osrm.org`).
 - `ROUTER_API_KEY` — sent as a bearer token to the router if set.

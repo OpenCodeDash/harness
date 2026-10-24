@@ -349,8 +349,9 @@ Derived evidence:
 
 - Geocode anchors and listing addresses with a provider; cache by normalized address.
 - Ambiguous or failed matches go to an `unmatched` bucket and are not silently placed.
-- Drive-time routing from day one behind a `RoutingProvider` interface (OpenRouteService v1).
-  There is no straight-line fallback in the scoring path.
+- Drive-time routing from day one behind a `RoutingProvider` interface. OpenRouteService is
+  used when `ORS_API_KEY` is set; otherwise an OSRM router (ADR 0023). There is no
+  straight-line fallback in the scoring path.
 - Route results cache per `(origin, dest)` with `observed_at`; traffic-dependent times are not
   timeless. `drive_min` is stored on the listing.
 - User locations stay local; nothing is sent to a provider beyond the coordinates required.

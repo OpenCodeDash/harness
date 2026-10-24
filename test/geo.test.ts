@@ -5,6 +5,7 @@ import {
   MemoryGeoCache,
   NominatimGeocoder,
   OpenRouteServiceRouter,
+  OsrmRouter,
 } from "../src/geo/providers.ts";
 import { CachedGeoService } from "../src/geo/service.ts";
 import type { GeoPoint, GeocodeProvider } from "../src/geo/types.ts";
@@ -132,4 +133,24 @@ test("store persists geocode and route cache entries", () => {
   } finally {
     store.close();
   }
+});
+
+test("OSRM router requests a route and converts seconds to minutes", async () => {
+  let url = "";
+  const router = new OsrmRouter({
+    baseUrl: "https://osrm.test",
+    fetchImpl: async (input) => {
+      url = String(input);
+      return new Response(
+        JSON.stringify({ routes: [{ duration: 725 }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  const minutes = await router.driveMinutes(
+    { lat: -41.28, lon: 174.77 },
+    { lat: -41.22, lon: 174.8 },
+  );
+  assert.equal(minutes, 12.1);
+  assert.match(url, /^https:\/\/osrm\.test\/route\/v1\/driving\/174\.77,-41\.28;174\.8,-41\.22/);
 });

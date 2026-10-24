@@ -11,7 +11,11 @@ import { createControlServer, type ControlServer, type ControlState } from "./co
 import { connectSearxngMcp } from "./discovery/searxng.ts";
 import { ResponsesQueryPlanner } from "./discovery/planner.ts";
 import { ResponsesFeedbackInterpreter } from "./feedback/model.ts";
-import { NominatimGeocoder, OpenRouteServiceRouter } from "./geo/providers.ts";
+import {
+  NominatimGeocoder,
+  OpenRouteServiceRouter,
+  OsrmRouter,
+} from "./geo/providers.ts";
 import { CachedGeoService } from "./geo/service.ts";
 import { McpBrowser } from "./browser/mcp.ts";
 import { runCampaign, type CampaignSummary, type RunnerDeps } from "./runner/loop.ts";
@@ -201,18 +205,16 @@ export async function main(
       model,
       extract: (input) => textExtractor.extract(input),
     },
-    geo: process.env.ORS_API_KEY
-      ? new CachedGeoService({
-          geocoder: new NominatimGeocoder(),
-          router: new OpenRouteServiceRouter({
-            apiKey: process.env.ORS_API_KEY,
-          }),
-          cache: {
-            get: (key) => store.getGeoCache(key),
-            set: (key, value) => store.setGeoCache(key, value),
-          },
-        })
-      : undefined,
+    geo: new CachedGeoService({
+      geocoder: new NominatimGeocoder(),
+      router: process.env.ORS_API_KEY
+        ? new OpenRouteServiceRouter({ apiKey: process.env.ORS_API_KEY })
+        : new OsrmRouter({ baseUrl: process.env.OSRM_URL }),
+      cache: {
+        get: (key) => store.getGeoCache(key),
+        set: (key, value) => store.setGeoCache(key, value),
+      },
+    }),
   };
 
   let lastRunId = options.resume;
