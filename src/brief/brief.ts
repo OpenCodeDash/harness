@@ -49,6 +49,7 @@ const BudgetsYaml = z.object({
   max_usd: z.number().nonnegative().optional(),
   max_minutes: z.number().positive().optional(),
   vision_max: z.number().int().nonnegative().optional(),
+  text_max: z.number().int().nonnegative().optional(),
   html_max: z.number().int().nonnegative().optional(),
 });
 
@@ -199,6 +200,7 @@ export function fromYaml(raw: BriefYaml): Brief {
       maxUsd: budgets.max_usd ?? DEFAULT_BUDGETS.maxUsd,
       maxMinutes: budgets.max_minutes ?? DEFAULT_BUDGETS.maxMinutes,
       visionMax: budgets.vision_max ?? DEFAULT_BUDGETS.visionMax,
+      textMax: budgets.text_max ?? DEFAULT_BUDGETS.textMax,
       htmlMax: budgets.html_max ?? DEFAULT_BUDGETS.htmlMax,
     },
     assumptions: raw.assumptions ?? [],
@@ -263,6 +265,7 @@ export function toYaml(brief: Brief): BriefYaml {
       max_usd: brief.budgets.maxUsd,
       max_minutes: brief.budgets.maxMinutes,
       vision_max: brief.budgets.visionMax,
+      text_max: brief.budgets.textMax,
       html_max: brief.budgets.htmlMax,
     },
     assumptions: brief.assumptions,
@@ -384,6 +387,7 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
       maxMinutes:
         parsed.budgets?.max_minutes ?? DEFAULT_BUDGETS.maxMinutes,
       visionMax: parsed.budgets?.vision_max ?? DEFAULT_BUDGETS.visionMax,
+      textMax: parsed.budgets?.text_max ?? DEFAULT_BUDGETS.textMax,
       htmlMax: parsed.budgets?.html_max ?? DEFAULT_BUDGETS.htmlMax,
     },
     assumptions: parsed.assumptions ?? [],
@@ -706,7 +710,7 @@ export function echoBrief(brief: Brief): string {
 
   lines.push(`Unknowns: ${brief.unknownPolicy}`);
   lines.push(
-    `Budget: ${brief.budgets.maxListings} listings · $${brief.budgets.maxUsd} · ${brief.budgets.maxMinutes} min · vision ${brief.budgets.visionMax} · html ${brief.budgets.htmlMax}`,
+    `Budget: ${brief.budgets.maxListings} listings · ${brief.budgets.maxUsd} · ${brief.budgets.maxMinutes} min · vision ${brief.budgets.visionMax} · text ${brief.budgets.textMax} · html ${brief.budgets.htmlMax}`,
   );
   for (const assumption of brief.assumptions) {
     lines.push(`Assumed: ${assumption}`);

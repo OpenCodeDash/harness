@@ -373,7 +373,7 @@ test("collection stops at the listing budget", async () => {
       { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: false },
       {
         brief: makeBrief({
-          budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5 },
+          budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5, textMax: 5 },
         }),
       },
     );
@@ -405,7 +405,7 @@ test("detail visits only enrich ingested listings under the budget", async () =>
       { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: true, detailLimit: 10 },
       {
         brief: makeBrief({
-          budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5 },
+          budgets: { maxListings: 1, maxUsd: 15, maxMinutes: 5, visionMax: 5, textMax: 5 },
         }),
       },
     );
@@ -523,6 +523,7 @@ test("html fallback is budget-gated and tagged with generic provenance", async (
         maxUsd: 15,
         maxMinutes: 5,
         visionMax: 5,
+        textMax: 5,
         htmlMax: 1,
       },
     });
@@ -770,6 +771,57 @@ test("site hints reject results from other hosts", async () => {
       { brief: makeBrief() },
     );
     assert.equal(summary.discovered, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test("text extraction runs when vision is disabled", async () => {
+  const store = CampaignStore.open(":memory:");
+  const seed = "https://shop.test/products/m2";
+  const browser = new FakeBrowser((url) =>
+    url === seed ? [item("1", seed, 600)] : null,
+  );
+  const text = {
+    model: "test",
+    async extract() {
+      return [{ key: "m2", value: true, confidence: 0.9 }];
+    },
+  };
+  try {
+    await runCampaign(
+      { store, browser, search: new FakeSearch([]), text, visitDetails: false },
+      {
+        brief: makeBrief({
+          seeds: [seed],
+          budgets: {
+            maxListings: 5,
+            maxUsd: 1,
+            maxMinutes: 5,
+            visionMax: 0,
+            textMax: 5,
+            htmlMax: 2,
+          },
+          criteria: [
+            {
+              key: "m2",
+              label: "M2 chip",
+              weight: 1,
+              kind: "boolean",
+              normalizer: { type: "boolean" },
+              source: { type: "text", prompt: "Is this an M2 MacBook?" },
+              origin: "explicit",
+            },
+          ],
+        }),
+      },
+    );
+    const listing = store.findListing("jsonld", "1")!;
+    const evidence = store.listEvidence(listing.id);
+    assert.equal(
+      evidence.find((entry) => entry.key === "m2")?.value,
+      true,
+    );
   } finally {
     store.close();
   }

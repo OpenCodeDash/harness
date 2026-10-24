@@ -1024,7 +1024,7 @@ async function addTextFacts(
         b.result.score - a.result.score ||
         a.listing.id - b.listing.id,
     )
-    .slice(0, brief.budgets.visionMax);
+    .slice(0, brief.budgets.textMax);
 
   if (candidates.length === 0) {
     state.log("info", "no descriptions available for text criteria");

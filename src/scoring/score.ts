@@ -151,8 +151,19 @@ export function normalizeValue(
     }
     case "enum": {
       if (typeof value !== "string") return null;
-      const score = normalizer.scores[value.trim().toLowerCase()];
-      return score === undefined ? null : clamp01(score);
+      const normalized = value.trim().toLowerCase();
+      const exact = normalizer.scores[normalized];
+      if (exact !== undefined) return clamp01(exact);
+      const contained = Object.entries(normalizer.scores)
+        .filter(
+          ([key]) =>
+            key.length >= 4 &&
+            new RegExp(`\\b${escapePattern(key.toLowerCase())}\\b`, "i").test(
+              normalized,
+            ),
+        )
+        .sort((a, b) => b[0].length - a[0].length)[0];
+      return contained ? clamp01(contained[1]) : null;
     }
   }
 }
@@ -286,13 +297,17 @@ function stringFact(facts: Facts, key: string): string | null {
   return fact.value;
 }
 
+const escapePattern = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 function matches(value: unknown, expected: unknown): boolean {
   if (typeof expected === "boolean") return toBoolean(value) === expected;
   if (typeof expected === "number") return toNumber(value) === expected;
-  return (
-    String(value).trim().toLowerCase() ===
-    String(expected).trim().toLowerCase()
-  );
+  const actual = String(value).trim().toLowerCase();
+  const target = String(expected).trim().toLowerCase();
+  if (actual === target) return true;
+  if (target.length < 4) return false;
+  return new RegExp(`\\b${escapePattern(target)}\\b`, "i").test(actual);
 }
 
 export function matchesHard(value: unknown, hard: HardPredicate): boolean {

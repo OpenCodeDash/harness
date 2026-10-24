@@ -43,6 +43,7 @@ export interface Budgets {
   maxUsd: number;
   maxMinutes: number;
   visionMax: number;
+  textMax: number;
   htmlMax: number;
 }
 
@@ -88,5 +89,6 @@ export const DEFAULT_BUDGETS: Budgets = {
   maxUsd: 15,
   maxMinutes: 120,
   visionMax: 60,
+  textMax: 50,
   htmlMax: 25,
 };
