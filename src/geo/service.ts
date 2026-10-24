@@ -81,9 +81,13 @@ export class CachedGeoService {
     address: string,
     work: GeoPoint,
     onError?: (error: unknown) => void,
+    onMissing?: (reason: string) => void,
   ): Promise<CommuteResult | null> {
     const point = await this.geocode(address);
-    if (!point) return null;
+    if (!point) {
+      onMissing?.("address could not be geocoded");
+      return null;
+    }
     const minutes = await this.driveMinutes(point, work, onError);
     if (minutes === null) return null;
     return { minutes, point };
