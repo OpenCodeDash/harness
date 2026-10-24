@@ -160,6 +160,17 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
       const action = segments[2];
 
       if (!action) {
+        if (req.method === "DELETE") {
+          if (runtime.running) {
+            return send(res, 409, {
+              error: "campaign is running; stop it before deleting",
+            });
+          }
+          manager.delete(runtime.record.id);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
         if (req.method !== "GET") {
           return send(res, 405, { error: "method not allowed" });
         }
