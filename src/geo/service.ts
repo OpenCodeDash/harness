@@ -55,7 +55,11 @@ export class CachedGeoService {
     return point;
   }
 
-  async driveMinutes(from: GeoPoint, to: GeoPoint): Promise<number | null> {
+  async driveMinutes(
+    from: GeoPoint,
+    to: GeoPoint,
+    onError?: (error: unknown) => void,
+  ): Promise<number | null> {
     const key = routeKey(from, to);
     const cached = this.read<number>(
       key,
@@ -67,7 +71,8 @@ export class CachedGeoService {
       const minutes = await this.options.router.driveMinutes(from, to);
       this.options.cache.set(key, minutes);
       return minutes;
-    } catch {
+    } catch (error) {
+      onError?.(error);
       return null;
     }
   }
@@ -75,10 +80,11 @@ export class CachedGeoService {
   async commuteMinutes(
     address: string,
     work: GeoPoint,
+    onError?: (error: unknown) => void,
   ): Promise<CommuteResult | null> {
     const point = await this.geocode(address);
     if (!point) return null;
-    const minutes = await this.driveMinutes(point, work);
+    const minutes = await this.driveMinutes(point, work, onError);
     if (minutes === null) return null;
     return { minutes, point };
   }

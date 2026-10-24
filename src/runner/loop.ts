@@ -898,7 +898,15 @@ async function addDerivedFacts(
           const address = facts.get("address")?.value;
           if (typeof address !== "string") continue;
           try {
-            const commute = await deps.geo.commuteMinutes(address, work);
+            const commute = await deps.geo.commuteMinutes(
+              address,
+              work,
+              (error) => {
+                const text = `commute route ${listing.id}: ${message(error)}`;
+                errors.push(text);
+                log("error", text);
+              },
+            );
             if (!commute) continue;
             for (const criterion of commuteCriteria) {
               deps.store.addEvidence({

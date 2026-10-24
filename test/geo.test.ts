@@ -154,3 +154,24 @@ test("OSRM router requests a route and converts seconds to minutes", async () =>
   assert.equal(minutes, 12.1);
   assert.match(url, /^https:\/\/osrm\.test\/route\/v1\/driving\/174\.77,-41\.28;174\.8,-41\.22/);
 });
+
+test("route failures can be observed without guessing a value", async () => {
+  const seen: unknown[] = [];
+  const service = new CachedGeoService({
+    geocoder: { async geocode() { return { lat: 0, lon: 0 }; } },
+    router: {
+      async driveMinutes() {
+        throw new Error("429");
+      },
+    },
+    cache: new MemoryGeoCache(),
+  });
+  assert.equal(
+    await service.commuteMinutes("x", { lat: 1, lon: 1 }, (error) =>
+      seen.push(error),
+    ),
+    null,
+  );
+  assert.equal(seen.length, 1);
+  assert.match(String(seen[0]), /429/);
+});
