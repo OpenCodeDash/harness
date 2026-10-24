@@ -59,8 +59,9 @@ GET  /health
 GET  /campaigns
 POST /campaigns                    {prompt | brief, name?}
 POST /campaigns/:id/feedback       {text}  (model-interpreted delta)
-GET  /campaigns/:id
-GET  /campaigns/:id/results
+GET    /campaigns/:id
+DELETE /campaigns/:id              stop first; removes the registry row and campaign dir
+GET    /campaigns/:id/results
 GET  /campaigns/:id/export.csv
 GET  /campaigns/:id/events         SSE
 POST /campaigns/:id/feedback       {text}

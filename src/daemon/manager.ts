@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   echoBrief,
@@ -213,6 +213,24 @@ export class CampaignManager {
       lastSummary,
       createdAt: runtime.record.createdAt,
     };
+  }
+
+  delete(id: string): void {
+    const runtime = this.require(id);
+    if (runtime.running) {
+      throw new Error("campaign is running; stop it before deleting");
+    }
+    const campaignsRoot = resolve(this.options.root, "campaigns");
+    const dir = resolve(runtime.record.dir);
+    if (dir !== campaignsRoot && !dir.startsWith(`${campaignsRoot}${sep}`)) {
+      throw new Error(
+        "refusing to delete a directory outside the campaigns root",
+      );
+    }
+    runtime.store.close();
+    this.runtimes.delete(id);
+    this.registry.delete(id);
+    rmSync(dir, { recursive: true, force: true });
   }
 
   async preview(input: { prompt: string }): Promise<{ brief: Brief; echo: string }> {

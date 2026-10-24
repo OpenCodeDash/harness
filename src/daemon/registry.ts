@@ -68,6 +68,13 @@ export class CampaignRegistry {
     return rows.map(toRecord);
   }
 
+  delete(id: string): boolean {
+    const result = this.db
+      .prepare("DELETE FROM campaign WHERE id = ?")
+      .run(id);
+    return result.changes > 0;
+  }
+
   get(id: string): CampaignRecord | null {
     const row = this.db
       .prepare("SELECT * FROM campaign WHERE id = ?")

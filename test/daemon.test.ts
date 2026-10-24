@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -280,6 +280,76 @@ test("daemon server authenticates and serves results, feedback, and SSE", async 
     const chunk = await reader.read();
     assert.match(new TextDecoder().decode(chunk.value), /"type":"status"/);
     controller.abort();
+  } finally {
+    await server.close();
+    manager.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("manager deletes a completed campaign and its directory", async () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-daemon-"));
+  const manager = makeManager(root);
+  await manager.open();
+  try {
+    const runtime = await manager.create({ prompt: "demo", name: "demo" });
+    const id = runtime.record.id;
+    const dir = runtime.record.dir;
+    manager.start(id);
+    await manager.waitForIdle();
+
+    manager.delete(id);
+    assert.equal(manager.get(id), null);
+    assert.equal(manager.list().length, 0);
+    assert.equal(existsSync(dir), false);
+  } finally {
+    manager.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("manager refuses to delete a running campaign", async () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-daemon-"));
+  const manager = makeManager(root);
+  await manager.open();
+  try {
+    const runtime = await manager.create({ prompt: "demo", name: "demo" });
+    const id = runtime.record.id;
+    manager.start(id);
+    assert.throws(() => manager.delete(id), /running/);
+    manager.stop(id);
+    await manager.waitForIdle();
+    manager.delete(id);
+    assert.equal(manager.get(id), null);
+  } finally {
+    manager.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("daemon DELETE removes a campaign and refuses while running", async () => {
+  const root = mkdtempSync(join(tmpdir(), "harness-daemon-"));
+  const manager = makeManager(root);
+  await manager.open();
+  const server = createDaemonServer({ manager, token: "secret" });
+  const port = await server.listen(0);
+  const base = `http://127.0.0.1:${port}`;
+  const auth = { authorization: "Bearer secret" };
+  try {
+    const runtime = await manager.create({ prompt: "demo", name: "demo" });
+    const id = runtime.record.id;
+    manager.start(id);
+    await manager.waitForIdle();
+
+    const deleted = await fetch(`${base}/campaigns/${id}`, {
+      method: "DELETE",
+      headers: auth,
+    });
+    assert.equal(deleted.status, 204);
+
+    const missing = await fetch(`${base}/campaigns/${id}`, { headers: auth });
+    assert.equal(missing.status, 404);
+    assert.equal(manager.list().length, 0);
   } finally {
     await server.close();
     manager.close();
