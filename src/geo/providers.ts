@@ -107,3 +107,39 @@ export class OpenRouteServiceRouter implements RoutingProvider {
     return Math.round((seconds / 60) * 10) / 10;
   }
 }
+
+/**
+ * Public OSRM routing. Used when no OpenRouteService key is configured so a
+ * commute criterion still resolves instead of hard-failing every listing.
+ * The demo server is rate limited; set OSRM_URL for a self-hosted instance.
+ */
+export class OsrmRouter implements RoutingProvider {
+  constructor(
+    private readonly options: {
+      baseUrl?: string;
+      fetchImpl?: typeof fetch;
+      profile?: string;
+    } = {},
+  ) {}
+
+  async driveMinutes(from: GeoPoint, to: GeoPoint): Promise<number> {
+    const fetchImpl = this.options.fetchImpl ?? fetch;
+    const baseUrl = this.options.baseUrl ?? "https://router.project-osrm.org";
+    const profile = this.options.profile ?? "driving";
+    const response = await fetchImpl(
+      `${baseUrl.replace(/\/$/, "")}/route/v1/${profile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`,
+      { headers: { accept: "application/json" } },
+    );
+    if (!response.ok) {
+      throw new Error(`route ${response.status}`);
+    }
+    const data = (await response.json()) as {
+      routes?: Array<{ duration?: number }>;
+    };
+    const seconds = data.routes?.[0]?.duration;
+    if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+      throw new Error("route returned no duration");
+    }
+    return Math.round((seconds / 60) * 10) / 10;
+  }
+}
