@@ -177,10 +177,18 @@ export function extractJsonLdListings(
   const localityOf = (item: Obj): string | undefined => {
     const address = asObject(item.address);
     const area = asObject(item.areaServed);
+    const offer = offerList(item)[FIRST];
+    const seller = asObject(offer?.seller);
+    const sellerAddress = asObject(seller?.address);
+    const sellerParts = [
+      text(sellerAddress?.addressLocality),
+      text(sellerAddress?.addressRegion),
+    ].filter((part): part is string => Boolean(part));
     return (
       text(item.location) ??
       text(address?.addressLocality) ??
       text(address?.addressRegion) ??
+      (sellerParts.length ? sellerParts.join(", ") : undefined) ??
       text(item.areaServed) ??
       text(area?.name)
     );
@@ -410,6 +418,10 @@ export function extractFallbackListing(
     (main as { innerText?: string } | null)?.innerText ??
     main?.textContent ??
     "";
+  const specText =
+    (document.body as { innerText?: string } | null)?.innerText ??
+    document.body?.textContent ??
+    rawText;
   const bodyText = clean(rawText)?.slice(0, 20_000);
 
   const title =
@@ -493,9 +505,24 @@ export function extractFallbackListing(
     if (cells.length === 2) addSpec(cells[0], cells[1]);
   }
 
-  for (const line of rawText.split(/\r?\n/)) {
-    const match = /^\s*([A-Za-z][A-Za-z0-9 /%()_-]{1,40}):\s*(.+?)\s*$/.exec(line);
-    if (match) addSpec(match[1], match[2]);
+  const lines = specText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const skipLabel =
+    /^(description|details|specifications?|package includes|shipping|payment|about)$/i;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = (lines[index] ?? "").replace(/^[^\p{L}\p{N}]+/u, "");
+    const same = /^([A-Za-z][A-Za-z0-9 /%()_-]{1,40}):\s*(.+)$/.exec(line);
+    if (same) {
+      addSpec(same[1], same[2]);
+      continue;
+    }
+    const labelOnly = /^([A-Za-z][A-Za-z0-9 /%()_-]{1,40}):$/.exec(line);
+    if (!labelOnly || skipLabel.test(labelOnly[1] ?? "")) continue;
+    const following = lines[index + 1]?.replace(/^[^\p{L}\p{N}]+/u, "");
+    if (!following || following.length > 80 || following.includes(":")) continue;
+    addSpec(labelOnly[1] ?? "", following);
   }
 
   return {
@@ -513,6 +540,46 @@ export function extractFallbackListing(
     fallback: true,
     raw: { fallback: "html" },
   };
+}
+
+/**
+ * Collect same-host links that look like individual listings. Self-contained:
+ * stringified into page.evaluate. Used when a search/collection page has no
+ * structured item list and the site recipe cannot read it.
+ */
+export function extractListingLinks(
+  document: Document,
+  pageUrl: string,
+): string[] {
+  const PATH = /\/(listing|product|products|item|items|offer|offers|p)\//i;
+  const ID = /[?&](id|listingId|itemId|productId)=\d+/i;
+  let origin = "";
+  try {
+    origin = new URL(pageUrl).origin;
+  } catch {
+    origin = "";
+  }
+  const links = new Set<string>();
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    const raw = anchor.getAttribute("href");
+    if (!raw) continue;
+    let url: URL;
+    try {
+      url = new URL(raw, pageUrl);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    if (origin && url.origin !== origin) continue;
+    const pathMatch = PATH.test(url.pathname);
+    const idMatch = ID.test(url.search);
+    if (!pathMatch && !idMatch) continue;
+    url.hash = "";
+    const path = url.pathname.replace(/\/+$/, "");
+    links.add(pathMatch ? `${url.origin}${path}` : `${url.origin}${path}${url.search}`);
+    if (links.size >= 40) break;
+  }
+  return [...links];
 }
 
 export const jsonLdRecipe: Recipe = {
@@ -536,6 +603,10 @@ export const jsonLdRecipe: Recipe = {
   isListing: () => false,
   searchReady: `() => document.readyState !== 'loading'`,
   listingReady: `() => document.readyState !== 'loading'`,
+  linksScript: `() => {
+    const __name = (fn) => fn;
+    return (${extractListingLinks.toString()})(document, location.href);
+  }`,
   searchScript: `() => {
     const __name = (fn) => fn;
     const documents = [];

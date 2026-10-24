@@ -219,3 +219,26 @@ test("maps additionalProperty into specs", () => {
     battery_health: "91%",
   });
 });
+
+test("uses the seller address for location when the item has none", () => {
+  const product = {
+    ...PRODUCT,
+    address: undefined,
+    offers: {
+      ...PRODUCT.offers,
+      seller: {
+        "@type": "Person",
+        address: {
+          "@type": "PostalAddress",
+          addressLocality: "New Lynn",
+          addressRegion: "Auckland",
+        },
+      },
+    },
+  };
+  const [listing] = extractJsonLdListings(
+    [product],
+    "https://shop.test/p/1",
+  ) as Array<{ fields: Record<string, unknown> }>;
+  assert.equal(listing?.fields.location, "New Lynn, Auckland");
+});

@@ -85,6 +85,12 @@ export function parseSearchResults(raw: unknown): SearchResult[] {
   const text = response?.content?.find((item) => item.type === "text")?.text;
   if (!text) return [];
 
+  // The MCP server reports engine failures as prose, not JSON. Treating that
+  // as "no matches" hides a broken provider behind an empty result set.
+  if (/search degraded|engines? failed|access denied|captcha/i.test(text)) {
+    throw new Error(text.trim());
+  }
+
   try {
     return normaliseResults(JSON.parse(text));
   } catch {
@@ -92,19 +98,40 @@ export function parseSearchResults(raw: unknown): SearchResult[] {
   }
 }
 
+const DEFAULT_ENGINES = ["brave", "bing", "yahoo"];
+
+export interface SearxngProviderOptions {
+  /** Search engines to ask for explicitly; empty uses the server default. */
+  engines?: string[];
+}
+
 export class SearxngMcpProvider implements SearchProvider {
-  constructor(private readonly callTool: ToolCaller) {}
+  private readonly engines: string[];
+
+  constructor(
+    private readonly callTool: ToolCaller,
+    options: SearxngProviderOptions = {},
+  ) {
+    const configured =
+      options.engines ?? (process.env.SEARXNG_ENGINES ?? "").split(",");
+    const engines = configured
+      .map((engine) => engine.trim())
+      .filter(Boolean);
+    this.engines = engines.length ? engines : DEFAULT_ENGINES;
+  }
 
   async search(
     query: string,
     options: SearchOptions = {},
   ): Promise<SearchResult[]> {
-    const raw = await this.callTool("searxng_web_search", {
+    const args: Record<string, unknown> = {
       query,
       num_results: options.limit ?? 10,
       response_format: "json",
       result_detail: "compact",
-    });
+    };
+    if (this.engines.length) args.engines = this.engines.join(",");
+    const raw = await this.callTool("searxng_web_search", args);
 
     const seen = new Set<string>();
     const results: SearchResult[] = [];
@@ -117,7 +144,10 @@ export class SearxngMcpProvider implements SearchProvider {
   }
 }
 
-export async function connectSearxngMcp(url: string): Promise<{
+export async function connectSearxngMcp(
+  url: string,
+  options: SearxngProviderOptions = {},
+): Promise<{
   provider: SearxngMcpProvider;
   close: () => Promise<void>;
 }> {
@@ -129,7 +159,7 @@ export async function connectSearxngMcp(url: string): Promise<{
     client.callTool({ name, arguments: args });
 
   return {
-    provider: new SearxngMcpProvider(callTool),
+    provider: new SearxngMcpProvider(callTool, options),
     close: () => client.close(),
   };
 }

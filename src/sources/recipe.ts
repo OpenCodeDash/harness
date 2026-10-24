@@ -34,6 +34,8 @@ export interface Recipe {
   listingReady: string;
   searchScript: string;
   listingScript: string;
+  /** Optional page script returning candidate listing URLs. */
+  linksScript?: string;
 }
 
 export class RecipeError extends Error {
@@ -136,6 +138,16 @@ export async function runSearch(
   await page.waitFor(recipe.searchReady);
   const raw = await page.evaluate<unknown>(recipe.searchScript);
   return validateSearchResults(raw, recipe, baseUrl);
+}
+
+export async function runLinks(
+  page: RecipePage,
+  recipe: Recipe,
+): Promise<string[]> {
+  if (!recipe.linksScript) return [];
+  const raw = await page.evaluate<unknown>(recipe.linksScript);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === "string");
 }
 
 export async function runListing(

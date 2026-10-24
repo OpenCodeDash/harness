@@ -273,8 +273,9 @@ If the interpretation is wrong, the next message corrects it. No silent autonomo
 Discovery: a schema-constrained planner turns the brief into 1-8 short queries plus optional
 bare-host site hints (ADR 0019). If the planner is unavailable or returns nothing, source
 templates render from brief values as a fallback. Results are deduped by URL
-canonicalization. The brief's source scope decides which sources participate; open web is the
-default. Each query's hit count is logged.
+canonicalization. Queries name their engines explicitly (ADR 0022); a site hint is enforced
+on the result host, not just prefixed as `site:`. The brief's source scope decides which
+sources participate; open web is the default. Each query's hit count is logged.
 
 Extraction: per-site recipes executed inside the page via chrome-devtools `evaluate_script`.
 

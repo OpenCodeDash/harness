@@ -135,3 +135,24 @@ test("extracts specs from definition lists and two-column tables", () => {
     battery_health: "90%",
   });
 });
+
+test("extracts label/value lines and bullet specs from page text", () => {
+  const html = `<html><head><title>MacBook</title></head><body><main>
+    <h1>MacBook Air</h1>
+    <p>A nice laptop for $2,000.</p>
+    <div>Details</div>
+    <div>Condition:</div>
+    <div>Used</div>
+    <div>Memory:</div>
+    <div>32 GB &amp; over</div>
+    <div>Specifications:</div>
+    <div>🔋 Battery health: 93% maximum capacity</div>
+  </main></body></html>`;
+  const listing = extractFallbackListing(documentFor(html), PAGE_URL) as {
+    fields: Record<string, unknown>;
+  };
+  const specs = listing.fields.specs as Record<string, string>;
+  assert.equal(specs.condition, "Used");
+  assert.equal(specs.memory, "32 GB & over");
+  assert.equal(specs.battery_health, "93% maximum capacity");
+});

@@ -10,13 +10,15 @@ import type { PlannedQuery, QueryPlanner } from "../discovery/planner.ts";
 import { canonicalUrl, type SearchProvider } from "../discovery/searxng.ts";
 import type { CachedGeoService } from "../geo/service.ts";
 import type { GeoPoint } from "../geo/types.ts";
-import { selectFacts, scoreListing } from "../scoring/score.ts";
+import { selectFacts, scoreListing, type Facts } from "../scoring/score.ts";
 import { persistScores, scoreCampaign } from "./score.ts";
 import {
   getRecipeFor,
   isUrlAllowed,
   listRecipes,
+  matchesHost,
   runListing,
+  runLinks,
   runSearch,
   selectSources,
   type Recipe,
@@ -336,9 +338,29 @@ export async function runCampaign(
             return {
               kind: "listing" as const,
               items: [await runListing(activePage, activeRecipe, url)],
+              links: [] as string[],
             };
           }
           let extracted = await runSearch(activePage, activeRecipe, url);
+          const links = await runLinks(activePage, activeRecipe);
+          let looksLikeIndex = false;
+          try {
+            looksLikeIndex =
+              /(\/s\/|\/search|\/collections?\/|\/c\/|\/categories?\/|\/stores?\/|\/browse)/i.test(
+                new URL(url).pathname,
+              );
+          } catch {
+            looksLikeIndex = false;
+          }
+          if (links.length >= 5 && (looksLikeIndex || extracted.length === 0)) {
+            return {
+              kind: "index" as const,
+              items: extracted.filter(
+                (item) => canonicalUrl(item.url) !== pageKey,
+              ),
+              links,
+            };
+          }
           const distinct = extracted.filter(
             (item) => canonicalUrl(item.url) !== pageKey,
           );
@@ -356,11 +378,15 @@ export async function runCampaign(
           } else {
             pageKind = "index";
           }
-          return { kind: pageKind, items: extracted };
+          return { kind: pageKind, items: extracted, links: [] as string[] };
         };
 
         let usedRecipe = recipe;
-        let extracted: { kind: "listing" | "index"; items: RawListing[] };
+        let extracted: {
+          kind: "listing" | "index";
+          items: RawListing[];
+          links: string[];
+        };
         try {
           extracted = await extractPage(recipe);
         } catch (error) {
@@ -373,46 +399,77 @@ export async function runCampaign(
           usedRecipe = generic;
           extracted = await extractPage(generic);
         }
-        const { items, kind } = extracted;
+        const { items, kind, links } = extracted;
         if (kind === "index") indexPages += 1;
         else listingPages += 1;
 
-        if (items.length === 0) {
+        const pageItems =
+          kind === "index" && links.length > 0
+            ? items.filter((item) => canonicalUrl(item.url) !== pageKey)
+            : items;
+        const detailUrls = new Set<string>();
+        for (const item of pageItems) {
+          if (canonicalUrl(item.url) !== pageKey) detailUrls.add(item.url);
+        }
+        for (const link of links) {
+          if (canonicalUrl(link) !== pageKey) detailUrls.add(link);
+        }
+
+        if (pageItems.length === 0 && detailUrls.size === 0) {
           const text = `no listing data on ${url}`;
           errors.push(text);
           log("error", text);
         } else {
-          const ingested: RawListing[] = [];
-          for (const item of items) {
+          const collectedUrls = new Set<string>();
+          for (const item of pageItems) {
             if (!allowFallback(item)) continue;
             ingest(store, usedRecipe, item, observe);
-            ingested.push(item);
+            collectedUrls.add(canonicalUrl(item.url));
             collected += 1;
             if (collected >= brief.budgets.maxListings) break;
           }
-          if (collected >= brief.budgets.maxListings) {
-            budgetHit = true;
-          }
+          if (collected >= brief.budgets.maxListings) budgetHit = true;
 
           if (
             kind === "index" &&
             deps.visitDetails !== false &&
             detailCount < detailLimit
           ) {
-            for (const item of ingested) {
+            for (const detailUrl of detailUrls) {
+              const alreadyCounted = collectedUrls.has(canonicalUrl(detailUrl));
+              if (
+                !alreadyCounted &&
+                collected >= brief.budgets.maxListings
+              ) {
+                budgetHit = true;
+                break;
+              }
               if (detailCount >= detailLimit) break;
               if (paused()) break;
-              if (canonicalUrl(item.url) === pageKey) continue;
               let detailPage: RunnerPage | null = null;
               try {
-                detailPage = await deps.browser.newPage(item.url);
-                const detail = await runListing(detailPage, usedRecipe, item.url);
+                detailPage = await deps.browser.newPage(detailUrl);
+                let detail: RawListing;
+                try {
+                  detail = await runListing(detailPage, usedRecipe, detailUrl);
+                } catch (error) {
+                  const generic = listRecipes().find(
+                    (entry) => entry.id === "jsonld",
+                  );
+                  if (!generic || generic.id === usedRecipe.id) throw error;
+                  detail = await runListing(detailPage, generic, detailUrl);
+                }
                 if (allowFallback(detail)) {
                   ingest(store, usedRecipe, detail, observe);
+                  const key = canonicalUrl(detail.url);
+                  if (!collectedUrls.has(key)) {
+                    collectedUrls.add(key);
+                    collected += 1;
+                  }
                 }
                 detailCount += 1;
               } catch (error) {
-                const text = `detail ${item.url}: ${message(error)}`;
+                const text = `detail ${detailUrl}: ${message(error)}`;
                 errors.push(text);
                 log("error", text);
               } finally {
@@ -432,7 +489,7 @@ export async function runCampaign(
       checkpoint({ stage: "collect", seeds, index: index + 1 });
     }
 
-    if (stopReason === "complete") {
+    if (stopReason === "complete" || stopReason === "budget") {
       checkpoint({ stage: "text", seeds, index: 0 });
     }
     emit({
@@ -455,7 +512,10 @@ export async function runCampaign(
     for (const warning of warnings) log("info", warning);
   }
 
-  if (stopReason === "complete" && progress?.stage === "text") {
+  if (
+    (stopReason === "complete" || stopReason === "budget") &&
+    progress?.stage === "text"
+  ) {
     await addDerivedFacts(deps, brief, errors, log);
     await addTextFacts(deps, brief, store, progress, checkpoint, errors, {
       paused,
@@ -476,7 +536,7 @@ export async function runCampaign(
           spendUsd: spend,
         }),
     });
-    if (stopReason === "complete") {
+    if (stopReason === "complete" || stopReason === "budget") {
       checkpoint({ stage: "vision", seeds, index: 0 });
       emit({
         type: "stage",
@@ -488,7 +548,10 @@ export async function runCampaign(
     }
   }
 
-  if (stopReason === "complete" && progress?.stage === "vision") {
+  if (
+    (stopReason === "complete" || stopReason === "budget") &&
+    progress?.stage === "vision"
+  ) {
     await addVision(deps, brief, progress, checkpoint, errors, {
       spend,
       photosPerListing,
@@ -652,8 +715,11 @@ async function discover(
   let hits = 0;
   for (const [index, plannedQuery] of planned.entries()) {
     if (seeds.size >= brief.budgets.maxListings) break;
-    const query = plannedQuery.site
-      ? `site:${plannedQuery.site} ${plannedQuery.query}`
+    const site =
+      plannedQuery.site ??
+      /^site:(\S+)/i.exec(plannedQuery.query)?.[1];
+    const query = site
+      ? `site:${site} ${plannedQuery.query.replace(/^site:\S+\s*/i, "")}`
       : plannedQuery.query;
     report.progress(index + 1, planned.length, `searching: ${query}`);
     try {
@@ -661,6 +727,7 @@ async function discover(
       hits += results.length;
       report.log("info", `search "${query}": ${results.length} result(s)`);
       for (const result of results) {
+        if (site && !matchesHost(site, result.url)) continue;
         const recipe = getRecipeFor(result.url);
         if (!recipe) continue;
         if (!isUrlAllowed(result.url, brief.sources, recipes, recipe.id)) {
@@ -874,6 +941,45 @@ async function addDerivedFacts(
   log("info", "derived criteria complete");
 }
 
+function listingContext(facts: Facts): string {
+  const get = (key: string): string => {
+    const value = facts.get(key)?.value;
+    if (value === undefined || value === null || value === "") return "";
+    if (typeof value === "string") return value.replace(/\s+/g, " ").trim();
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    return "";
+  };
+  const location = [
+    get("location"),
+    get("suburb"),
+    get("district"),
+    get("region"),
+    get("address"),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const specsValue = facts.get("specs")?.value;
+  const specs =
+    specsValue && typeof specsValue === "object" && !Array.isArray(specsValue)
+      ? Object.entries(specsValue as Record<string, unknown>)
+          .map(([key, value]) => `${key}: ${String(value)}`)
+          .join("; ")
+      : "";
+  return [
+    get("title") ? `Title: ${get("title")}` : "",
+    location ? `Location: ${location}` : "",
+    get("brand") ? `Brand: ${get("brand")}` : "",
+    get("model") ? `Model: ${get("model")}` : "",
+    get("condition") ? `Condition: ${get("condition")}` : "",
+    get("description") ? `Description: ${get("description")}` : "",
+    specs ? `Specs: ${specs}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function addTextFacts(
   deps: RunnerDeps,
   brief: Brief,
@@ -909,7 +1015,8 @@ async function addTextFacts(
     })
     .filter(
       (candidate) =>
-        typeof candidate.facts.get("description")?.value === "string",
+        typeof candidate.facts.get("description")?.value === "string" ||
+        typeof candidate.facts.get("title")?.value === "string",
     )
     .sort(
       (a, b) =>
@@ -946,8 +1053,8 @@ async function addTextFacts(
       candidates.length,
       `text pass ${index + 1}/${candidates.length}`,
     );
-    const description = candidate.facts.get("description")?.value;
-    if (typeof description !== "string") continue;
+    const description = listingContext(candidate.facts);
+    if (!description) continue;
 
     try {
       const facts = await deps.text.extract({
