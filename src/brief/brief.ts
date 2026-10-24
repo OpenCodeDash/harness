@@ -360,6 +360,24 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
     );
   }
 
+  const skipText = /no text|skip text|without text|no description/i.test(prompt);
+  const skipHtml =
+    /structured[- ]only|no html|without html|structured data only/i.test(prompt);
+  let textMax = parsed.budgets?.text_max ?? DEFAULT_BUDGETS.textMax;
+  if (textMax === 0 && !skipText) {
+    textMax = DEFAULT_BUDGETS.textMax;
+    warnings.push(
+      "text_max 0 ignored; text extraction stays enabled (50). Say \"no text\" to disable it.",
+    );
+  }
+  let htmlMax = parsed.budgets?.html_max ?? DEFAULT_BUDGETS.htmlMax;
+  if (htmlMax === 0 && !skipHtml) {
+    htmlMax = DEFAULT_BUDGETS.htmlMax;
+    warnings.push(
+      "html_max 0 ignored; generic HTML fallback stays enabled (25). Say \"structured-only\" to disable it.",
+    );
+  }
+
   const brief: Brief = {
     version: 1,
     domain: parsed.domain ?? "generic",
@@ -387,8 +405,8 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
       maxMinutes:
         parsed.budgets?.max_minutes ?? DEFAULT_BUDGETS.maxMinutes,
       visionMax: parsed.budgets?.vision_max ?? DEFAULT_BUDGETS.visionMax,
-      textMax: parsed.budgets?.text_max ?? DEFAULT_BUDGETS.textMax,
-      htmlMax: parsed.budgets?.html_max ?? DEFAULT_BUDGETS.htmlMax,
+      textMax,
+      htmlMax,
     },
     assumptions: parsed.assumptions ?? [],
     warnings,

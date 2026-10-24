@@ -242,3 +242,19 @@ test("uses the seller address for location when the item has none", () => {
   ) as Array<{ fields: Record<string, unknown> }>;
   assert.equal(listing?.fields.location, "New Lynn, Auckland");
 });
+
+test("JSON-LD listings enriched from HTML are not marked as fallback", () => {
+  const pageUrl = "https://shop.test/products/thinkpad";
+  const html = htmlFor(PRODUCT).replace(
+    "<body></body>",
+    "<body><main>\n<h1>ThinkPad T14</h1>\n<p>Only $1,450.</p>\n<div>RAM Size: 32GB</div>\n</main></body>",
+  );
+  const listing = runScript(jsonLdRecipe.listingScript, html, pageUrl) as {
+    fallback?: boolean;
+    sourceRef?: string;
+    fields: { specs?: Record<string, string> };
+  };
+  assert.notEqual(listing.fallback, true);
+  assert.equal(listing.sourceRef, undefined);
+  assert.equal(listing.fields.specs?.ram_size, "32GB");
+});

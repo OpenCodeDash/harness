@@ -387,7 +387,7 @@ export function buildBriefPrompt(prompt: string): string {
     "- Field sources may name a canonical field key or a spec key such as ram_gb, storage_gb, or battery_health. Specs are read from structured data, spec tables, and key/value rows. If a value is only stated in prose, use a text criterion instead.",
     "- Only set sources when the user names sites or limits the search. allow/deny/prefer take source ids or hosts (for example trademe or trademe.co.nz). web defaults to open; use structured-only to skip generic HTML and off to search only allow-listed sources.",
     "- Weights are 0..1. Explicit criteria should carry the user's intent; suggested criteria default lower.",
-    "- Budgets: text_max defaults to 50 and vision_max to 60; they are independent. Do not set vision_max to 0 merely because the request does not mention photos.",
+    "- Budgets: text_max defaults to 50, html_max to 25, and vision_max to 60; they are independent. Do not set any of them to 0 merely because the request does not mention photos, descriptions, or HTML. Only do so when the user explicitly asks to skip that source.",
     "- Do not invent facts. Criteria are what to look for; evidence comes later.",
     "",
     "Available fields:",
