@@ -872,6 +872,7 @@ async function addDerivedFacts(
     if (!deps.geo || !brief.anchors.work) {
       log("info", "commute scoring skipped (no geo provider or work anchor)");
     } else {
+      const geo = deps.geo;
       let work: GeoPoint | null = null;
       try {
         if (
@@ -880,7 +881,7 @@ async function addDerivedFacts(
         ) {
           work = { lat: brief.anchors.work.lat, lon: brief.anchors.work.lon };
         } else if (brief.anchors.work.address) {
-          work = await deps.geo.geocode(brief.anchors.work.address);
+          work = await geo.geocode(brief.anchors.work.address);
         }
       } catch (error) {
         const text = `geocode work: ${message(error)}`;
@@ -896,17 +897,37 @@ async function addDerivedFacts(
         for (const listing of deps.store.listListings()) {
           const facts = selectFacts(deps.store.listEvidence(listing.id));
           const address = facts.get("address")?.value;
-          if (typeof address !== "string") continue;
+          const lat = numeric(facts.get("lat")?.value);
+          const lon = numeric(facts.get("lon")?.value);
+          if (lat === null && typeof address !== "string") continue;
           try {
-            const commute = await deps.geo.commuteMinutes(
-              address,
-              work,
-              (error) => {
-                const text = `commute route ${listing.id}: ${message(error)}`;
-                errors.push(text);
-                log("error", text);
-              },
-            );
+            const onRouteError = (error: unknown) => {
+              const text = `commute route ${listing.id}: ${message(error)}`;
+              errors.push(text);
+              log("error", text);
+            };
+            const commute =
+              lat !== null && lon !== null
+                ? await (async () => {
+                    const minutes = await geo.driveMinutes(
+                      { lat, lon },
+                      work,
+                      onRouteError,
+                    );
+                    return minutes === null
+                      ? null
+                      : { minutes, point: { lat, lon } };
+                  })()
+                : await geo.commuteMinutes(
+                    String(address),
+                    work,
+                    onRouteError,
+                    (reason) => {
+                      const text = `commute ${listing.id}: ${reason}`;
+                      errors.push(text);
+                      log("info", text);
+                    },
+                  );
             if (!commute) continue;
             for (const criterion of commuteCriteria) {
               deps.store.addEvidence({
