@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   flattenSpecs,
   normaliseSpecKey,
+  parseTextSpecs,
   resolveSpecKey,
 } from "../src/domain/specs.ts";
 
@@ -37,4 +38,20 @@ test("specs flatten to normalised evidence keys", () => {
     { ram_size: "16GB", brand: "Apple" },
   );
   assert.deepEqual(flattenSpecs(null), {});
+});
+
+test("parses capacities, battery, and year from free text", () => {
+  assert.deepEqual(
+    parseTextSpecs("Apple MacBook Air M2 8GB 256GB SSD"),
+    { ram_gb: 8, storage_gb: 256 },
+  );
+  assert.deepEqual(
+    parseTextSpecs("MacBook Pro 16GB RAM 512GB SSD, battery health 93%"),
+    { ram_gb: 16, storage_gb: 512, battery_health: 93 },
+  );
+  assert.deepEqual(parseTextSpecs("2023 M2 Pro 32GB + 1TB"), {
+    ram_gb: 32,
+    storage_gb: 1024,
+    year: 2023,
+  });
 });
