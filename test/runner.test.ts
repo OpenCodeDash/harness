@@ -748,3 +748,29 @@ test("specs are flattened into evidence and satisfy field criteria", async () =>
     store.close();
   }
 });
+
+test("site hints reject results from other hosts", async () => {
+  const store = CampaignStore.open(":memory:");
+  const search = new FakeSearch([
+    SEARCH_URL,
+    "https://junk.test/threads/not-a-macbook",
+  ]);
+  const planner = new FakePlanner([
+    { query: "m2 macbook auckland", site: "trademe.co.nz" },
+  ]);
+  try {
+    const summary = await runCampaign(
+      {
+        store,
+        browser: new FakeBrowser(() => null),
+        search,
+        planner,
+        visitDetails: false,
+      },
+      { brief: makeBrief() },
+    );
+    assert.equal(summary.discovered, 1);
+  } finally {
+    store.close();
+  }
+});

@@ -93,6 +93,7 @@ The single-campaign control API is local-only:
 - `CHROME_PATH` — Chromium executable for the chrome-devtools MCP server. Auto-detects
   common paths; set it if auto-detection fails.
 - `SEARXNG_MCP_URL` — SearXNG MCP endpoint (e.g. `http://host:8049/mcp`).
+- `SEARXNG_ENGINES` — comma-separated engines to query (default `brave,bing,yahoo`).
 - `ROUTER_BASE_URL` — LLM router base URL (default `http://192.168.68.51:3005/v1`).
 - `HARNESS_MODEL` — Responses-API model (default `opencode-go-gpt-5.6-luna`).
 - `HARNESS_HEADLESS` — set `0` to show the automation browser; headless otherwise.

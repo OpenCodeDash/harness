@@ -277,5 +277,34 @@ test("provider sends the expected MCP arguments and dedupes", async () => {
   assert.equal(calls[0]?.args.query, "wellington rental");
   assert.equal(calls[0]?.args.num_results, 2);
   assert.equal(calls[0]?.args.response_format, "json");
+  assert.equal(calls[0]?.args.engines, "brave,bing,yahoo");
   assert.equal(results.length, 1);
+});
+
+test("provider accepts an explicit engine list", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const provider = new SearxngMcpProvider(
+    async (_name, args) => {
+      calls.push(args);
+      return { structuredContent: { results: [] } };
+    },
+    { engines: ["brave"] },
+  );
+  await provider.search("anything");
+  assert.equal(calls[0]?.engines, "brave");
+});
+
+test("degraded search reports an error instead of an empty result", () => {
+  assert.throws(
+    () =>
+      parseSearchResults({
+        content: [
+          {
+            type: "text",
+            text: "Search Degraded: No results for 'laptop', and these engines failed: google (access denied).",
+          },
+        ],
+      }),
+    /access denied/,
+  );
 });
