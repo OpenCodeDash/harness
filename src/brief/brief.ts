@@ -438,10 +438,76 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
     return true;
   });
 
+  brief.criteria = repairFieldCriteria(brief.criteria, brief.warnings);
   brief.assumptions = [
     ...new Set([...brief.assumptions, ...deriveAssumptions(brief)]),
   ];
   return brief;
+}
+
+const KNOWN_SPEC_FIELDS = new Set([
+  "rent",
+  "bedrooms",
+  "bathrooms",
+  "parking",
+  "property_type",
+  "available_from",
+  "whiteware",
+  "furnished",
+  "pets",
+  "heat_pump",
+  "suburb",
+  "district",
+  "region",
+  "agency",
+  "ram_gb",
+  "storage_gb",
+  "battery_health",
+  "screen_size",
+  "mileage",
+  "price",
+  "memory",
+  "ram_size",
+  "hard_drive_size",
+]);
+
+/**
+ * The compiler may invent field names such as m2_macbook or location_auckland.
+ * A field that is neither canonical nor a known spec would silently stay
+ * unknown, so evaluate it from text instead.
+ */
+function repairFieldCriteria(
+  criteria: CriterionSpec[],
+  warnings: string[],
+): CriterionSpec[] {
+  const known = new Set([
+    ...FIELDS.map((field) => field.key),
+    ...KNOWN_SPEC_FIELDS,
+  ]);
+  return criteria.map((criterion) => {
+    if (criterion.source.type !== "field") return criterion;
+    if (known.has(criterion.source.field)) return criterion;
+    const field = criterion.source.field;
+    let prompt: string;
+    if (criterion.kind === "boolean") {
+      prompt = `Does the listing satisfy this requirement: ${criterion.label}? Return true or false.`;
+    } else if (criterion.kind === "number") {
+      prompt = `Extract ${criterion.label} as a number from the listing. Return null if it is not stated.`;
+    } else {
+      const values =
+        criterion.normalizer.type === "enum"
+          ? Object.keys(criterion.normalizer.scores)
+          : [];
+      prompt = `Classify the listing for "${criterion.label}". Return one of: ${values.join(", ") || "the listed values"}.`;
+    }
+    warnings.push(
+      `field "${field}" is not a known field or spec; evaluating "${criterion.label}" as text`,
+    );
+    return {
+      ...criterion,
+      source: { type: "text", prompt } as const,
+    };
+  });
 }
 
 export async function compileBrief(

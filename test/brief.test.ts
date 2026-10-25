@@ -387,3 +387,57 @@ test("compiler zero budgets fall back to defaults unless explicitly skipped", ()
   assert.equal(skipped.budgets.htmlMax, 0);
   assert.equal(skipped.budgets.textMax, 0);
 });
+
+test("compiler field hallucinations fall back to text", () => {
+  const brief = briefFromExtraction("find an M2 macbook in Auckland", {
+    criteria: [
+      {
+        key: "m2_macbook",
+        label: "MacBook with an M2 chip",
+        weight: 1,
+        kind: "boolean",
+        normalizer: { type: "boolean" },
+        source: { type: "field", field: "m2_macbook" },
+        origin: "explicit",
+        hard: { op: "eq", value: true },
+      },
+      {
+        key: "location_auckland",
+        label: "Located in Auckland",
+        weight: 1,
+        kind: "enum",
+        normalizer: { type: "enum", scores: { auckland: 1, other: 0 } },
+        source: { type: "field", field: "location_auckland" },
+        origin: "explicit",
+        hard: { op: "eq", value: "Auckland" },
+      },
+      {
+        key: "ram_gb",
+        label: "RAM",
+        weight: 1,
+        kind: "number",
+        normalizer: { type: "higher-is-better", max: 64 },
+        source: { type: "field", field: "ram_gb" },
+        origin: "explicit",
+      },
+    ],
+  });
+
+  assert.equal(
+    brief.criteria.find((criterion) => criterion.key === "m2_macbook")?.source
+      .type,
+    "text",
+  );
+  assert.equal(
+    brief.criteria.find((criterion) => criterion.key === "location_auckland")
+      ?.source.type,
+    "text",
+  );
+  assert.equal(
+    brief.criteria.find((criterion) => criterion.key === "ram_gb")?.source.type,
+    "field",
+  );
+  assert.ok(
+    brief.warnings.some((warning) => warning.includes("evaluating")),
+  );
+});
