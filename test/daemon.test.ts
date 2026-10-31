@@ -260,6 +260,8 @@ test("daemon server authenticates and serves results, feedback, and SSE", async 
     };
     assert.ok(Array.isArray(previewBody.criteria));
     assert.ok(previewBody.criteria.length > 0);
+    assert.ok(typeof previewBody.brief === "string");
+    assert.match(previewBody.brief, /version:/);
     assert.match(previewBody.echo, /Criteria/);
 
     const started = await fetch(`${base}/campaigns`, {

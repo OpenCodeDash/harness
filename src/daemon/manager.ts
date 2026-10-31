@@ -75,6 +75,8 @@ export interface CampaignStatus {
   id: string;
   name: string;
   prompt: string;
+  /** Compatibility alias for older clients; packs are gone, domain is the value. */
+  pack: string;
   domain: string;
   status: string;
   paused: boolean;
@@ -198,6 +200,7 @@ export class CampaignManager {
       id: runtime.record.id,
       name: runtime.record.name,
       prompt: runtime.record.prompt,
+      pack: runtime.brief.domain,
       domain: runtime.record.domain,
       status: runtime.running
         ? "running"

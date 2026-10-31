@@ -441,3 +441,100 @@ test("compiler field hallucinations fall back to text", () => {
     brief.warnings.some((warning) => warning.includes("evaluating")),
   );
 });
+
+test("alternative room wording removes a hard bedroom minimum and keeps the room criterion", () => {
+  const brief = briefFromExtraction(
+    "rental up to $600 with at least two rooms (2 bedrooms OR 1 bedroom plus a study) near 64C Stoddard Road",
+    {
+      hard: { rent_max: 600, bedrooms: { min: 2 } },
+      criteria: [
+        {
+          key: "two_rooms",
+          label: "At least two rooms",
+          weight: 1,
+          kind: "boolean",
+          normalizer: { type: "boolean" },
+          source: {
+            type: "text",
+            prompt:
+              "Return true for 2+ bedrooms or 1 bedroom plus a separate study.",
+          },
+          origin: "explicit",
+          hard: { op: "eq", value: true },
+        },
+      ],
+    },
+  );
+
+  assert.equal(brief.hard.bedrooms, undefined);
+  assert.equal(
+    brief.criteria.find((criterion) => criterion.key === "two_rooms")?.hard?.op,
+    "eq",
+  );
+  assert.equal(brief.domain, "property");
+  assert.ok(
+    brief.warnings.some((warning) => warning.includes("alternative room")),
+  );
+});
+
+test("implicit currency criteria are removed and fuel criteria get cost parameters", () => {
+  const brief = briefFromExtraction(
+    "rental under $600 near 64C Stoddard Road, petrol $3.30 NZD/L, Mazda 3 8L/100km, 5-day round-trip commute",
+    {
+      anchors: { work: { address: "64C Stoddard Road, Auckland" } },
+      hard: { rent_max: 600 },
+      criteria: [
+        {
+          key: "rent_currency",
+          label: "Rent currency",
+          weight: 0.9,
+          kind: "enum",
+          normalizer: { type: "enum", scores: { NZD: 1, other: 0 } },
+          source: { type: "field", field: "currency" },
+          origin: "explicit",
+          hard: { op: "eq", value: "NZD" },
+        },
+        {
+          key: "weekly_petrol_cost",
+          label: "Weekly petrol cost",
+          weight: 0.9,
+          kind: "number",
+          normalizer: { type: "lower-is-better", max: 100 },
+          source: { type: "derived", evaluator: "commute" },
+          origin: "explicit",
+        },
+        {
+          key: "total_weekly_cost",
+          label: "Total weekly cost",
+          weight: 1,
+          kind: "number",
+          normalizer: { type: "lower-is-better", max: 700 },
+          source: { type: "derived", evaluator: "commute" },
+          origin: "explicit",
+        },
+      ],
+    },
+  );
+
+  assert.equal(
+    brief.criteria.some((criterion) => criterion.key === "rent_currency"),
+    false,
+  );
+  const fuel = brief.criteria.find(
+    (criterion) => criterion.key === "weekly_petrol_cost",
+  );
+  assert.equal(fuel?.source.type, "derived");
+  if (fuel?.source.type === "derived") {
+    assert.equal(fuel.source.params?.metric, "fuel_cost");
+    assert.equal(fuel.source.params?.fuel_l_per_100km, 8);
+    assert.equal(fuel.source.params?.fuel_price_per_litre, 3.3);
+    assert.equal(fuel.source.params?.days_per_week, 5);
+    assert.equal(fuel.source.params?.round_trip, true);
+  }
+  const total = brief.criteria.find(
+    (criterion) => criterion.key === "total_weekly_cost",
+  );
+  if (total?.source.type === "derived") {
+    assert.equal(total.source.params?.metric, "total_cost");
+  }
+});

@@ -172,7 +172,7 @@ export function fromYaml(raw: BriefYaml): Brief {
   const budgets = raw.budgets ?? {};
   return {
     version: raw.version ?? 1,
-    domain: raw.domain ?? "generic",
+    domain: raw.domain ?? inferDomain(raw.prompt ?? ""),
     prompt: raw.prompt ?? "",
     anchors: {
       work: raw.anchors?.work,
@@ -313,6 +313,138 @@ export function resolveKey(key: string): string | null {
   return null;
 }
 
+export function inferDomain(prompt: string): string {
+  if (
+    /\b(rent|rental|lease|tenant|bedroom|bedrooms|house|home|apartment|unit|townhouse|property)\b/i.test(
+      prompt,
+    )
+  ) {
+    return "property";
+  }
+  if (/\b(car|vehicle|ute|suv|sedan|hatchback|wagon|odometer|mileage)\b/i.test(prompt)) {
+    return "cars";
+  }
+  if (/\b(laptop|macbook|notebook|ram|ssd|storage|battery health)\b/i.test(prompt)) {
+    return "laptops";
+  }
+  return "generic";
+}
+
+function repairAlternativeRoomHard(
+  prompt: string,
+  hard: HardConstraints,
+  criteria: CriterionSpec[],
+  warnings: string[],
+): void {
+  if (!hard.bedrooms) return;
+  const alternatives =
+    /\b(at least\s+)?two rooms\b|\b2 rooms\b|\b1 bedroom\b.*\b(study|office)\b|\bone bedroom\b.*\b(study|office)\b|\bbedroom\b.*\b(or|plus)\b.*\b(study|office)\b/i.test(
+      prompt,
+    );
+  if (!alternatives) return;
+  hard.bedrooms = undefined;
+  const hasRoomCriterion = criteria.some((criterion) => {
+    const text = `${criterion.key} ${criterion.label}`.toLowerCase();
+    return /\b(room|bedroom|study|office)\b/.test(text);
+  });
+  if (!hasRoomCriterion) {
+    criteria.push({
+      key: "two_rooms",
+      label: "At least two rooms",
+      weight: 1,
+      kind: "boolean",
+      normalizer: { type: "boolean" },
+      source: {
+        type: "text",
+        prompt:
+          "Return true only if the property has at least two bedrooms, or exactly one bedroom plus a separate study/office.",
+      },
+      origin: "explicit",
+      hard: { op: "eq", value: true },
+    });
+    warnings.push(
+      "added a two-rooms criterion because the request allows 1 bedroom plus a study",
+    );
+  }
+  warnings.push(
+    "removed hard bedroom minimum because the request allows an alternative room configuration",
+  );
+}
+
+function repairImplicitCurrency(
+  prompt: string,
+  criteria: CriterionSpec[],
+  warnings: string[],
+): CriterionSpec[] {
+  const explicitCurrencyFilter =
+    /\b(currency|priced in|must be|only)\b.*\b(nzd|usd|aud)\b|\b(nzd|usd|aud)\b.*\b(only|required|must)\b/i.test(
+      prompt,
+    );
+  if (explicitCurrencyFilter) return criteria;
+  return criteria.filter((criterion) => {
+    const text = `${criterion.key} ${criterion.label}`.toLowerCase();
+    const currency =
+      criterion.source.type === "field" &&
+      criterion.source.field === "currency";
+    if (!currency && !/\bcurrency\b/.test(text)) return true;
+    warnings.push(
+      `removed implicit currency criterion "${criterion.key}"; price is already in the listing currency`,
+    );
+    return false;
+  });
+}
+
+function repairDerivedParams(
+  prompt: string,
+  criteria: CriterionSpec[],
+  warnings: string[],
+): void {
+  const litresPer100 = Number(
+    /(\d+(?:\.\d+)?)\s*(?:l|litres?)\s*(?:\/|per)\s*100\s*km/i.exec(prompt)?.[1],
+  );
+  const pricePerLitre = Number(
+    /\$?\s*(\d+(?:\.\d+)?)\s*(?:nzd)?\s*(?:\/|per)\s*(?:l|litre|liter)\b/i.exec(
+      prompt,
+    )?.[1],
+  );
+  const daysPerWeek = Number(
+    /(\d+)\s*(?:days?|day)\s*(?:a|per)?\s*week|(\d+)[- ]day/i.exec(prompt)?.[1] ??
+      /(\d+)[- ]day/i.exec(prompt)?.[1],
+  );
+  const roundTrip = !/\bone[- ]way\b|\bsingle trip\b/i.test(prompt);
+  for (const criterion of criteria) {
+    if (
+      criterion.source.type !== "derived" ||
+      criterion.source.evaluator !== "commute"
+    ) {
+      continue;
+    }
+    const text = `${criterion.key} ${criterion.label}`.toLowerCase();
+    const inferred = /\b(total|all.?in|rent.*(petrol|fuel))\b/.test(text)
+      ? "total_cost"
+      : /\b(petrol|fuel|gas|running cost)\b/.test(text)
+        ? "fuel_cost"
+        : /\b(distance|proximity|km|close|near)\b/.test(text)
+          ? "distance_km"
+          : "minutes";
+    const params = { ...(criterion.source.params ?? {}) };
+    if (typeof params.metric !== "string") params.metric = inferred;
+    if (params.metric === "fuel_cost" || params.metric === "total_cost") {
+      params.fuel_l_per_100km ??=
+        Number.isFinite(litresPer100) && litresPer100 > 0 ? litresPer100 : 8;
+      params.fuel_price_per_litre ??=
+        Number.isFinite(pricePerLitre) && pricePerLitre > 0 ? pricePerLitre : 3.3;
+      params.days_per_week ??=
+        Number.isFinite(daysPerWeek) && daysPerWeek > 0 ? daysPerWeek : 5;
+      params.round_trip ??= roundTrip;
+      warnings.push(
+        `inferred commute ${params.metric} parameters for "${criterion.key}" (${params.fuel_l_per_100km} L/100km, $${params.fuel_price_per_litre}/L, ${params.days_per_week} days)`,
+      );
+    }
+    criterion.source.params = params;
+  }
+}
+
 export function briefFromExtraction(prompt: string, raw: unknown): Brief {
   const parsed = BriefYamlSchema.parse(raw ?? {});
   const warnings = [...(parsed.warnings ?? [])];
@@ -342,6 +474,9 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
     }
     hard.required = resolved;
   }
+  repairAlternativeRoomHard(prompt, hard, criteria, warnings);
+  criteria = repairImplicitCurrency(prompt, criteria, warnings);
+  repairDerivedParams(prompt, criteria, warnings);
 
   const promptSeeds = extractSeedUrls(prompt);
   const seeds = [
@@ -380,7 +515,7 @@ export function briefFromExtraction(prompt: string, raw: unknown): Brief {
 
   const brief: Brief = {
     version: 1,
-    domain: parsed.domain ?? "generic",
+    domain: parsed.domain ?? inferDomain(prompt),
     prompt,
     anchors: {
       work: parsed.anchors?.work,

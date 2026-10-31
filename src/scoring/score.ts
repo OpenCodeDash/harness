@@ -342,7 +342,9 @@ export function checkHardConstraints(
   const failures: string[] = [];
 
   if (brief.hard.rentMax !== undefined) {
-    const rent = numberFact(facts, "rent", minConfidence);
+    const rent =
+      numberFact(facts, "rent", minConfidence) ??
+      numberFact(facts, "price", minConfidence);
     if (rent === null) failures.push("rent unknown");
     else if (rent > brief.hard.rentMax) {
       failures.push(`rent ${rent} > ${brief.hard.rentMax}`);

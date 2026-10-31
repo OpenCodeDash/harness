@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { briefFromExtraction } from "../src/brief/brief.ts";
 import { CampaignStore } from "../src/campaign/store.ts";
 import type { SearchProvider } from "../src/discovery/searxng.ts";
+import type { CachedGeoService } from "../src/geo/service.ts";
 import {
   runCampaign,
   type BrowserProvider,
@@ -822,6 +823,110 @@ test("text extraction runs when vision is disabled", async () => {
       evidence.find((entry) => entry.key === "m2")?.value,
       true,
     );
+  } finally {
+    store.close();
+  }
+});
+
+test("commute criteria use distance and fuel parameters instead of minutes", async () => {
+  const store = CampaignStore.open(":memory:");
+  const base = item("1", LISTING_1, 600);
+  const browser = new FakeBrowser((url) =>
+    url === SEARCH_URL
+      ? [
+          {
+            ...base,
+            fields: {
+              ...base.fields,
+              lat: -36.9,
+              lon: 174.7,
+            },
+          },
+        ]
+      : null,
+  );
+  const geo = {
+    async geocode() {
+      return { lat: -36.9, lon: 174.7 };
+    },
+    async driveRoute() {
+      return { minutes: 10, distanceKm: 5 };
+    },
+    async commuteRoute() {
+      return {
+        minutes: 10,
+        distanceKm: 5,
+        point: { lat: -36.9, lon: 174.7 },
+      };
+    },
+  } as unknown as CachedGeoService;
+
+  const brief = briefFromExtraction("rental near work", {
+    anchors: { work: { address: "64C Stoddard Road, Auckland" } },
+    criteria: [
+      {
+        key: "weekly_petrol_cost",
+        label: "Weekly petrol cost",
+        weight: 0.9,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 100 },
+        source: {
+          type: "derived",
+          evaluator: "commute",
+          params: {
+            metric: "fuel_cost",
+            fuel_l_per_100km: 8,
+            fuel_price_per_litre: 3.3,
+            days_per_week: 5,
+            round_trip: true,
+          },
+        },
+        origin: "explicit",
+      },
+      {
+        key: "total_weekly_cost",
+        label: "Total weekly cost",
+        weight: 1,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 700 },
+        source: {
+          type: "derived",
+          evaluator: "commute",
+          params: { metric: "total_cost" },
+        },
+        origin: "explicit",
+      },
+      {
+        key: "proximity_to_work",
+        label: "Proximity to work",
+        weight: 0.8,
+        kind: "number",
+        normalizer: { type: "lower-is-better", max: 20 },
+        source: {
+          type: "derived",
+          evaluator: "commute",
+          params: { metric: "distance_km" },
+        },
+        origin: "explicit",
+      },
+    ],
+  });
+
+  try {
+    await runCampaign(
+      { store, browser, search: new FakeSearch([SEARCH_URL]), visitDetails: false, geo },
+      { brief },
+    );
+
+    const listing = store.findListing("trademe", "1")!;
+    const evidence = new Map(
+      store.listEvidence(listing.id).map((fact) => [fact.key, fact.value]),
+    );
+    assert.equal(evidence.get("commute_minutes"), 10);
+    assert.equal(evidence.get("commute_distance_km"), 5);
+    assert.equal(evidence.get("weekly_petrol_cost"), 13.2);
+    assert.equal(evidence.get("total_weekly_cost"), 613.2);
+    assert.equal(evidence.get("proximity_to_work"), 5);
   } finally {
     store.close();
   }

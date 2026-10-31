@@ -4,7 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { serializeBrief, toYaml } from "../brief/brief.ts";
+import { serializeBrief } from "../brief/brief.ts";
 import type { CampaignManager, CampaignRuntime } from "./manager.ts";
 
 export interface DaemonServerOptions {
@@ -117,7 +117,7 @@ export function createDaemonServer(options: DaemonServerOptions): DaemonServer {
           prompt,
         });
         return send(res, 200, {
-          brief: toYaml(preview.brief),
+          brief: serializeBrief(preview.brief),
           criteria: preview.brief.criteria,
           echo: preview.echo,
           warnings: preview.brief.warnings,

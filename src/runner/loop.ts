@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { serializeBrief } from "../brief/brief.ts";
 import type { Brief } from "../brief/types.ts";
 import type { CampaignStore } from "../campaign/store.ts";
-import type { ImageFeatureDef } from "../domain/types.ts";
+import type { CriterionSpec, ImageFeatureDef } from "../domain/types.ts";
 import { flattenSpecs, parseTextSpecs } from "../domain/specs.ts";
 import { buildDiscoveryQueries } from "../discovery/queries.ts";
 import type { PlannedQuery, QueryPlanner } from "../discovery/planner.ts";
@@ -849,6 +849,72 @@ function numeric(value: unknown): number | null {
   return null;
 }
 
+function numberParam(
+  params: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number {
+  const value = numeric(params[key]);
+  return value !== null && value > 0 ? value : fallback;
+}
+
+function booleanParam(
+  params: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean {
+  return typeof params[key] === "boolean" ? params[key] : fallback;
+}
+
+function commuteMetric(criterion: CriterionSpec): string {
+  if (criterion.source.type !== "derived") return "minutes";
+  const params = criterion.source.params ?? {};
+  const allowed = new Set(["minutes", "distance_km", "fuel_cost", "total_cost"]);
+  if (typeof params.metric === "string" && allowed.has(params.metric)) {
+    return params.metric;
+  }
+  const text = `${criterion.key} ${criterion.label}`.toLowerCase();
+  if (/\b(total|all.?in|rent.*(petrol|fuel))\b/.test(text)) return "total_cost";
+  if (/\b(petrol|fuel|gas|running cost)\b/.test(text)) return "fuel_cost";
+  if (/\b(distance|proximity|km|close|near)\b/.test(text)) return "distance_km";
+  return "minutes";
+}
+
+function commuteFuelCost(
+  distanceKm: number | null,
+  params: Record<string, unknown>,
+): number | null {
+  if (distanceKm === null) return null;
+  const litresPer100 = numberParam(params, "fuel_l_per_100km", 8);
+  const pricePerLitre = numberParam(params, "fuel_price_per_litre", 3.3);
+  const days = numberParam(params, "days_per_week", 5);
+  const roundTrip = booleanParam(params, "round_trip", true);
+  const weeklyKm = distanceKm * (roundTrip ? 2 : 1) * days;
+  return Math.round(weeklyKm * (litresPer100 / 100) * pricePerLitre * 100) / 100;
+}
+
+function commuteValue(
+  criterion: CriterionSpec,
+  route: { minutes: number; distanceKm: number | null },
+  facts: Facts,
+): number | null {
+  const params =
+    criterion.source.type === "derived" ? (criterion.source.params ?? {}) : {};
+  const metric = commuteMetric(criterion);
+  if (metric === "minutes") return route.minutes;
+  if (metric === "distance_km") return route.distanceKm;
+  const fuel = commuteFuelCost(route.distanceKm, params);
+  if (fuel === null) return null;
+  if (metric === "fuel_cost") return fuel;
+  if (metric === "total_cost") {
+    const rent =
+      numeric(facts.get("rent")?.value) ?? numeric(facts.get("price")?.value);
+    if (rent === null) return null;
+    return Math.round((rent + fuel) * 100) / 100;
+  }
+  return null;
+}
+
 async function addDerivedFacts(
   deps: RunnerDeps,
   brief: Brief,
@@ -909,16 +975,16 @@ async function addDerivedFacts(
             const commute =
               lat !== null && lon !== null
                 ? await (async () => {
-                    const minutes = await geo.driveMinutes(
+                    const route = await geo.driveRoute(
                       { lat, lon },
                       work,
                       onRouteError,
                     );
-                    return minutes === null
+                    return route === null
                       ? null
-                      : { minutes, point: { lat, lon } };
+                      : { ...route, point: { lat, lon } };
                   })()
-                : await geo.commuteMinutes(
+                : await geo.commuteRoute(
                     String(address),
                     work,
                     onRouteError,
@@ -929,13 +995,33 @@ async function addDerivedFacts(
                     },
                   );
             if (!commute) continue;
+            deps.store.addEvidence({
+              listingId: listing.id,
+              key: "commute_minutes",
+              value: commute.minutes,
+              sourceType: "inference",
+              sourceRef: "route",
+              confidence: 0.9,
+            });
+            if (commute.distanceKm !== null) {
+              deps.store.addEvidence({
+                listingId: listing.id,
+                key: "commute_distance_km",
+                value: commute.distanceKm,
+                sourceType: "inference",
+                sourceRef: "route",
+                confidence: 0.9,
+              });
+            }
             for (const criterion of commuteCriteria) {
+              const value = commuteValue(criterion, commute, facts);
+              if (value === null) continue;
               deps.store.addEvidence({
                 listingId: listing.id,
                 key: criterion.key,
-                value: commute.minutes,
+                value,
                 sourceType: "inference",
-                sourceRef: "route",
+                sourceRef: `route:${commuteMetric(criterion)}`,
                 confidence: 0.9,
               });
             }
@@ -959,7 +1045,9 @@ async function addDerivedFacts(
     const divisorKey = evaluator === "price_per_bedroom" ? "bedrooms" : "bathrooms";
     for (const listing of deps.store.listListings()) {
       const facts = selectFacts(deps.store.listEvidence(listing.id));
-      const rent = numeric(facts.get("rent")?.value);
+      const rent =
+        numeric(facts.get("rent")?.value) ??
+        numeric(facts.get("price")?.value);
       const divisor = numeric(facts.get(divisorKey)?.value);
       if (rent === null || divisor === null || divisor <= 0) continue;
       deps.store.addEvidence({

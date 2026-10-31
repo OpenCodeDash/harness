@@ -196,3 +196,66 @@ test("OSRM falls back to the next endpoint", async () => {
   assert.equal(minutes, 10);
   assert.equal(seen.length, 2);
 });
+
+test("geocoder falls back to Photon when Nominatim only returns a street", async () => {
+  const calls: string[] = [];
+  const geocoder = new NominatimGeocoder({
+    minIntervalMs: 0,
+    fetchImpl: async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("nominatim")) {
+        return new Response(
+          JSON.stringify([
+            {
+              lat: "-36.9081",
+              lon: "174.7355",
+              display_name: "Stoddard Road, Mount Roskill, Auckland",
+              addresstype: "road",
+              type: "secondary",
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              properties: {
+                housenumber: "64c",
+                street: "Stoddard Road",
+                type: "house",
+              },
+              geometry: { coordinates: [174.7298642, -36.9062905] },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+
+  const point = await geocoder.geocode("64C Stoddard Road, Mount Roskill");
+  assert.deepEqual(point, { lat: -36.9062905, lon: 174.7298642 });
+  assert.ok(calls.some((url) => url.includes("photon.komoot.io")));
+});
+
+test("OSRM driveRoute returns both duration and distance", async () => {
+  const router = new OsrmRouter({
+    baseUrl: "https://osrm.test",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          routes: [{ duration: 600, distance: 6268.1 }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  });
+  const route = await router.driveRoute(
+    { lat: -41.28, lon: 174.77 },
+    { lat: -41.22, lon: 174.8 },
+  );
+  assert.equal(route.minutes, 10);
+  assert.equal(route.distanceKm, 6.27);
+});
